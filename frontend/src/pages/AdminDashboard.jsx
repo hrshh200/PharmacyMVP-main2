@@ -38,6 +38,11 @@ const AdminDashboard = () => {
   const activeStores = stores.filter((store) => store.status === 'Active').length;
   const inactiveStores = stores.length - activeStores;
   const pendingRequests = storeRequests.filter((req) => req.status === 'pending').length;
+  const [confirmBox, setConfirmBox] = useState({
+  show: false,
+  message: "",
+  onConfirm: null,
+});
 
   const resetStoreForm = () => {
     setStoreForm({
@@ -157,7 +162,7 @@ const AdminDashboard = () => {
         message: "Store Added Successfully",
         type: "success",
       });
-      
+
       setActivePanel('stores');
       setEditingStoreId(null);
       resetStoreForm();

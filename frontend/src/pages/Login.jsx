@@ -75,7 +75,7 @@ const Login = () => {
     } else if (loginPayload.userType === 'store') {
       navigate("/storeDashboard");
     } else {
-      navigate("/");
+      navigate("/dashboard");
     }
 
   } catch (error) {
