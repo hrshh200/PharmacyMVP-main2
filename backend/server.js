@@ -9,7 +9,7 @@ const multer = require("multer");
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://main-frontend-iota.vercel.app/api", 
+  "https://main-frontend-iota.vercel.app" 
 ];
 
 app.use(cors({
