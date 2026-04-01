@@ -11,8 +11,337 @@ const UserQuery = require("../models/userQuery");
 const PrescriptionRequest = require("../models/prescriptionRequest");
 const Prescription = require("../models/prescription");
 const Cart = require("../models/cart");
+const { sendUserNotification, sendEmailNotification } = require("../utils/notificationService");
 const jwt = require("jsonwebtoken");
 const bcrypt = require('bcrypt');
+
+const triggerUserNotifications = async ({ userId, emailSubject, emailMessage, emailHtml, smsMessage }) => {
+    try {
+        console.log('[Notification] triggerUserNotifications called', {
+            userId: userId ? String(userId) : null,
+            emailSubject: emailSubject || null,
+            hasEmailMessage: Boolean(emailMessage),
+            hasEmailHtml: Boolean(emailHtml),
+            hasSmsMessage: Boolean(smsMessage),
+        });
+
+        if (!userId) {
+            console.log('[Notification] Bypassed: Missing userId');
+            return { bypassed: true, reason: 'Missing userId' };
+        }
+
+        const [user, notificationPreferences] = await Promise.all([
+            User.findById(userId)
+                .select('email mobile countryCode firstName lastName name')
+                .lean(),
+            UserNotification.findOne({ userId }).lean(),
+        ]);
+
+        if (!user) {
+            console.log('[Notification] Bypassed: User not found', { userId: String(userId) });
+            return { bypassed: true, reason: 'User not found' };
+        }
+
+        // Default to enabled if preferences are not created yet.
+        const preferences = notificationPreferences || {
+            isEmailNotificationOn: true,
+            isSmsNotificationOn: true,
+        };
+
+        const dispatchResult = await sendUserNotification({
+            user,
+            preferences,
+            emailSubject,
+            emailMessage,
+            emailHtml,
+            smsMessage,
+        });
+
+        console.log('[Notification] triggerUserNotifications result', dispatchResult);
+        return dispatchResult;
+    } catch (notificationError) {
+        console.error('Notification dispatch error:', notificationError.message);
+        return { bypassed: true, reason: notificationError.message };
+    }
+};
+
+const escapeHtml = (value) =>
+        String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+const buildEmailLayout = ({
+    eyebrow = 'Pharmacy MVP',
+    title,
+    intro,
+    accent = '#2563eb',
+    summary = [],
+    sections = [],
+    footer = 'Thank you for choosing Pharmacy MVP.',
+}) => {
+    const safeEyebrow = escapeHtml(eyebrow);
+    const safeTitle = escapeHtml(title);
+    const safeIntro = escapeHtml(intro);
+    const safeFooter = escapeHtml(footer);
+
+    const summaryHtml = summary.length
+        ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:18px;"><tr>${summary
+                .map(
+                    (item, index) => `<td width="${Math.floor(100 / summary.length)}%" style="padding:${index === 0 ? '0 8px 0 0' : '0 0 0 8px'};vertical-align:top;">
+                        <div style="background:${escapeHtml(item.background || '#f8fafc')};border:1px solid ${escapeHtml(item.border || '#e2e8f0')};border-radius:18px;padding:18px 20px;min-height:92px;">
+                            <div style="font-size:12px;color:${escapeHtml(item.labelColor || '#64748b')};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">${escapeHtml(item.label)}</div>
+                            <div style="font-size:22px;font-weight:700;color:#0f172a;line-height:1.35;">${escapeHtml(item.value)}</div>
+                        </div>
+                    </td>`,
+                )
+                .join('')}</tr></table>`
+        : '';
+
+    const sectionsHtml = sections
+        .map(
+            (section) => `<div style="background:${escapeHtml(section.background || '#ffffff')};border:1px solid ${escapeHtml(section.border || '#e2e8f0')};border-radius:18px;padding:18px 20px;margin-top:16px;">
+                <div style="font-size:16px;font-weight:700;color:${escapeHtml(section.titleColor || '#0f172a')};margin-bottom:${section.content ? '8px' : '0'};">${escapeHtml(section.title)}</div>
+                ${section.content ? `<div style="font-size:14px;line-height:1.8;color:${escapeHtml(section.contentColor || '#475569')};white-space:pre-line;">${escapeHtml(section.content)}</div>` : ''}
+            </div>`,
+        )
+        .join('');
+
+    return `<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${safeTitle}</title>
+    </head>
+    <body style="margin:0;padding:0;background:#f3f7fb;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f7fb;padding:24px 12px;">
+        <tr>
+        <td align="center">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 18px 45px rgba(15,23,42,0.08);">
+            <tr>
+                <td style="background:linear-gradient(135deg,${escapeHtml(accent)},#0f172a);padding:32px 36px;color:#ffffff;">
+                <div style="font-size:12px;letter-spacing:0.2em;text-transform:uppercase;opacity:0.85;">${safeEyebrow}</div>
+                <h1 style="margin:12px 0 8px;font-size:28px;line-height:1.25;">${safeTitle}</h1>
+                <p style="margin:0;font-size:15px;line-height:1.7;opacity:0.95;">${safeIntro}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding:28px 36px 34px;">
+                ${summaryHtml}
+                ${sectionsHtml}
+                <p style="margin:22px 0 0;font-size:14px;line-height:1.8;color:#475569;">${safeFooter}</p>
+                </td>
+            </tr>
+            </table>
+        </td>
+        </tr>
+    </table>
+    </body>
+</html>`;
+};
+
+const sendDirectEmailSafely = async ({ to, subject, text, html, context }) => {
+    try {
+        const result = await sendEmailNotification({ to, subject, text, html });
+        console.log('[Notification][DirectEmail] Result', {
+            context,
+            to,
+            subject,
+            result,
+        });
+        return result;
+    } catch (error) {
+        console.error('[Notification][DirectEmail] Failed', {
+            context,
+            to,
+            subject,
+            error: error.message,
+        });
+        return { sent: false, bypassed: true, reason: error.message, channel: 'email' };
+    }
+};
+
+const buildOrderPlacedEmailHtml = ({ orderId, amount, status }) => {
+    return buildEmailLayout({
+        eyebrow: 'Order Confirmation',
+        title: 'Your order is confirmed',
+        intro: 'Thank you for ordering with us. Your request has been received successfully and our team will keep you updated as it moves forward.',
+        accent: '#0f766e',
+        summary: [
+            { label: 'Order ID', value: orderId, background: '#eff6ff', border: '#bfdbfe', labelColor: '#1d4ed8' },
+            { label: 'Amount', value: `INR ${Number(amount || 0).toFixed(2)}`, background: '#f8fafc', border: '#e2e8f0', labelColor: '#64748b' },
+            { label: 'Status', value: status || 'Order Placed', background: '#ecfeff', border: '#99f6e4', labelColor: '#0f766e' },
+        ],
+        sections: [
+            {
+                title: 'Track your order anytime',
+                content: 'Open your dashboard to follow status updates like packing, pickup readiness, or delivery progress.',
+                background: '#fff7ed',
+                border: '#fdba74',
+                titleColor: '#9a3412',
+                contentColor: '#7c2d12',
+            },
+        ],
+        footer: 'Thank you for trusting Pharmacy MVP. We are glad to support your healthcare needs.',
+    });
+};
+
+const buildOrderTrackingEmailHtml = ({ orderId, trackingStatus, deliveryType }) =>
+    buildEmailLayout({
+        eyebrow: 'Order Tracking Update',
+        title: 'Your order status has changed',
+        intro: 'We have updated your order tracking progress. Please find the latest status below.',
+        accent: '#2563eb',
+        summary: [
+            { label: 'Order ID', value: orderId, background: '#eff6ff', border: '#bfdbfe', labelColor: '#1d4ed8' },
+            { label: 'Current Status', value: trackingStatus, background: '#eef2ff', border: '#c7d2fe', labelColor: '#4338ca' },
+            { label: 'Delivery Mode', value: deliveryType === 'pickup' ? 'Store Pick Up' : 'Home Delivery', background: '#f8fafc', border: '#e2e8f0', labelColor: '#475569' },
+        ],
+        sections: [
+            {
+                title: 'What happens next',
+                content: deliveryType === 'pickup'
+                    ? 'Keep an eye on your dashboard. We will let you know as soon as your order is ready for pick up.'
+                    : 'Keep an eye on your dashboard. We will keep you informed as your order moves toward delivery.',
+                background: '#eff6ff',
+                border: '#bfdbfe',
+                titleColor: '#1d4ed8',
+            },
+        ],
+        footer: 'You can open your dashboard anytime to check the latest tracking status.',
+    });
+
+const buildWelcomeUserEmailHtml = ({ name, email }) =>
+    buildEmailLayout({
+        eyebrow: 'Welcome to Pharmacy MVP',
+        title: `Hello ${name || 'there'}, your account is ready`,
+        intro: 'Your patient account has been created successfully. You can now explore medicines, manage prescriptions, track orders, and stay on top of your health updates.',
+        accent: '#0f766e',
+        summary: [
+            { label: 'Registered Email', value: email, background: '#f0fdf4', border: '#bbf7d0', labelColor: '#15803d' },
+        ],
+        sections: [
+            {
+                title: 'You can now use',
+                content: 'Online Pharmacy\nPrescription Uploads\nOrder Tracking\nVaccination Records\nRaise a Query',
+                background: '#f8fafc',
+                border: '#e2e8f0',
+            },
+        ],
+        footer: 'We are happy to have you with Pharmacy MVP.',
+    });
+
+const buildStoreRequestEmailHtml = ({ storeName, ownerName }) =>
+    buildEmailLayout({
+        eyebrow: 'Store Registration Request',
+        title: 'Your store request has been submitted',
+        intro: 'Thank you for registering your store with Pharmacy MVP. Our team will review your details and get back to you shortly.',
+        accent: '#7c3aed',
+        summary: [
+            { label: 'Store Name', value: storeName, background: '#faf5ff', border: '#ddd6fe', labelColor: '#7c3aed' },
+            { label: 'Owner Name', value: ownerName, background: '#f8fafc', border: '#e2e8f0', labelColor: '#475569' },
+        ],
+        sections: [
+            {
+                title: 'What to expect',
+                content: 'Once the review is completed, you will receive an email with the outcome and next steps.',
+                background: '#f5f3ff',
+                border: '#c4b5fd',
+                titleColor: '#6d28d9',
+            },
+        ],
+        footer: 'Please keep this email for your records while your request is under review.',
+    });
+
+const buildStoreApprovedEmailHtml = ({ storeName, ownerName, email, password }) =>
+    buildEmailLayout({
+        eyebrow: 'Store Approved',
+        title: 'Your store is now active',
+        intro: `Congratulations ${ownerName || 'Store Owner'}. Your store has been approved and activated on Pharmacy MVP.`,
+        accent: '#15803d',
+        summary: [
+            { label: 'Store Name', value: storeName, background: '#f0fdf4', border: '#bbf7d0', labelColor: '#15803d' },
+            { label: 'Login Email', value: email, background: '#f8fafc', border: '#e2e8f0', labelColor: '#475569' },
+            { label: 'Temporary Password', value: password, background: '#fff7ed', border: '#fdba74', labelColor: '#c2410c' },
+        ],
+        sections: [
+            {
+                title: 'Next step',
+                content: 'Sign in with the credentials above and change your password after your first login.',
+                background: '#ecfdf5',
+                border: '#86efac',
+                titleColor: '#166534',
+            },
+        ],
+        footer: 'Welcome to the Pharmacy MVP network.',
+    });
+
+const buildStoreRejectedEmailHtml = ({ storeName, reviewNotes }) =>
+    buildEmailLayout({
+        eyebrow: 'Store Review Update',
+        title: 'Your store request was not approved',
+        intro: 'We reviewed your submission and could not approve it at this stage. Please review the notes below and submit an updated request if needed.',
+        accent: '#dc2626',
+        summary: [
+            { label: 'Store Name', value: storeName, background: '#fef2f2', border: '#fecaca', labelColor: '#dc2626' },
+        ],
+        sections: [
+            {
+                title: 'Review notes',
+                content: reviewNotes || 'No additional notes were provided.',
+                background: '#fff1f2',
+                border: '#fecdd3',
+                titleColor: '#be123c',
+            },
+        ],
+        footer: 'You can resubmit your request after addressing the noted issues.',
+    });
+
+const buildPrescriptionStatusEmailHtml = ({ status, reviewNotes }) =>
+    buildEmailLayout({
+        eyebrow: 'Prescription Review',
+        title: `Your prescription is ${status}`,
+        intro: 'The pharmacy has completed the review of your prescription request.',
+        accent: status === 'Approved' ? '#15803d' : '#dc2626',
+        summary: [
+            { label: 'Review Status', value: status, background: status === 'Approved' ? '#f0fdf4' : '#fef2f2', border: status === 'Approved' ? '#bbf7d0' : '#fecaca', labelColor: status === 'Approved' ? '#15803d' : '#dc2626' },
+        ],
+        sections: [
+            {
+                title: status === 'Approved' ? 'What to do next' : 'Reason / notes',
+                content: status === 'Approved'
+                    ? 'Please log in to your dashboard to continue with the updated prescription journey.'
+                    : (reviewNotes || 'Please upload a clearer prescription or add the missing information and try again.'),
+                background: status === 'Approved' ? '#ecfdf5' : '#fff7ed',
+                border: status === 'Approved' ? '#86efac' : '#fdba74',
+                titleColor: status === 'Approved' ? '#166534' : '#9a3412',
+            },
+        ],
+        footer: 'You can check your dashboard anytime for the latest prescription status.',
+    });
+
+const buildQueryAnsweredEmailHtml = ({ subject, answer }) =>
+    buildEmailLayout({
+        eyebrow: 'Query Response',
+        title: 'The store has answered your query',
+        intro: 'A response is now available for the query you raised on Pharmacy MVP.',
+        accent: '#2563eb',
+        summary: [
+            { label: 'Query Subject', value: subject, background: '#eff6ff', border: '#bfdbfe', labelColor: '#1d4ed8' },
+        ],
+        sections: [
+            {
+                title: 'Store answer',
+                content: answer,
+                background: '#f8fafc',
+                border: '#e2e8f0',
+            },
+        ],
+        footer: 'Open your dashboard if you want to review this response again later.',
+    });
 
 const verifyAdminRequest = (req) => {
     try {
@@ -243,7 +572,17 @@ const signUp = async (req, res) => {
             };
 
             // Save the new user
-            const newUser = await User.create(userData);
+                const newUser = await User.create(userData);
+                await sendDirectEmailSafely({
+                    to: newUser.email,
+                    subject: 'Welcome to Pharmacy MVP',
+                    text: `Hello ${newUser.name || newUser.firstName || 'User'}, your Pharmacy MVP account has been created successfully. You can now sign in with ${newUser.email} and start using the dashboard features.`,
+                    html: buildWelcomeUserEmailHtml({
+                        name: newUser.name || [newUser.firstName, newUser.lastName].filter(Boolean).join(' '),
+                        email: newUser.email,
+                    }),
+                    context: 'user-signup',
+                });
             res.status(StatusCodes.CREATED).json({ message: "User created successfully" });
         }
 
@@ -911,6 +1250,27 @@ const finalpayment = async (req, res) => {
             return res.status(404).json({ error: 'Order not found' });
         }
 
+        const orderPlacedStatus = updatedOrder.trackingStatus || 'Order Placed';
+        const orderPlacedAmount = Number(updatedOrder.totalPrice || 0).toFixed(2);
+
+        const notificationResult = await triggerUserNotifications({
+            userId: updatedOrder.userId,
+            emailSubject: `Order placed successfully: ${updatedOrder.orderId}`,
+            emailMessage: `Your order has been placed successfully.\n\nOrder ID: ${updatedOrder.orderId}\nAmount: INR ${orderPlacedAmount}\nStatus: ${orderPlacedStatus}\n\nYou can track your order anytime from your dashboard. Thank you for ordering with Pharmacy MVP.`,
+            emailHtml: buildOrderPlacedEmailHtml({
+                orderId: updatedOrder.orderId,
+                amount: updatedOrder.totalPrice,
+                status: orderPlacedStatus,
+            }),
+            smsMessage: null,
+        });
+
+        console.log('[Notification][OrderPlaced] Dispatch summary', {
+            orderId: updatedOrder.orderId,
+            userId: String(updatedOrder.userId),
+            result: notificationResult,
+        });
+
         return res.status(200).json({
             message: 'Payment successfull!',
             updatedOrder: mapPatientOrder(updatedOrder),
@@ -1046,6 +1406,17 @@ const createStoreApprovalRequest = async (req, res) => {
 
         const createdRequest = await StoreApprovalRequest.create(requestPayload);
 
+        await sendDirectEmailSafely({
+            to: createdRequest.email,
+            subject: 'Store signup request received',
+            text: `Hello ${createdRequest.ownerName}, your store signup request for ${createdRequest.storeName} has been submitted successfully. We will notify you once the review is completed.`,
+            html: buildStoreRequestEmailHtml({
+                storeName: createdRequest.storeName,
+                ownerName: createdRequest.ownerName,
+            }),
+            context: 'store-request-submitted',
+        });
+
         return res.status(StatusCodes.CREATED).json({
             message: 'Store approval request submitted successfully',
             request: createdRequest,
@@ -1130,8 +1501,34 @@ const reviewStoreApprovalRequest = async (req, res) => {
             });
             await StoreApprovalRequest.findByIdAndDelete(id);
         }
-        //Will use Twilio SendGrid or Nodemailer to send email notification to the store owner about the review outcome
-        // await sendStoreEmail(updatedRequest.email, status);
+
+            if (status === 'approved' && createdStore) {
+                await sendDirectEmailSafely({
+                    to: request.email,
+                    subject: 'Your store has been approved',
+                    text: `Hello ${request.ownerName}, your store ${request.storeName} has been approved. Login email: ${request.email}. Temporary password: ${createdStore.password}. Please sign in and change your password.`,
+                    html: buildStoreApprovedEmailHtml({
+                        storeName: request.storeName,
+                        ownerName: request.ownerName,
+                        email: request.email,
+                        password: createdStore.password,
+                    }),
+                    context: 'store-request-approved',
+                });
+            }
+
+            if (status === 'rejected') {
+                await sendDirectEmailSafely({
+                    to: request.email,
+                    subject: 'Your store request was not approved',
+                    text: `Hello ${request.ownerName}, your store request for ${request.storeName} was not approved. Notes: ${reviewNotes || 'No additional notes were provided.'}`,
+                    html: buildStoreRejectedEmailHtml({
+                        storeName: request.storeName,
+                        reviewNotes,
+                    }),
+                    context: 'store-request-rejected',
+                });
+            }
 
         return res.status(StatusCodes.OK).json({
             success: true,
@@ -1241,6 +1638,19 @@ const addStore = async (req, res) => {
 
         await newStore.save();
 
+        await sendDirectEmailSafely({
+            to: newStore.email,
+            subject: 'Your Pharmacy MVP store account is ready',
+            text: `Hello ${newStore.ownerName}, your store ${newStore.storeName} has been created successfully. Login email: ${newStore.email}. Temporary password: ${plainPassword}. Please sign in and change your password.`,
+            html: buildStoreApprovedEmailHtml({
+                storeName: newStore.storeName,
+                ownerName: newStore.ownerName,
+                email: newStore.email,
+                password: plainPassword,
+            }),
+            context: 'store-manual-create',
+        });
+
         return res.status(StatusCodes.CREATED).json({ message: 'Store added successfully', store: newStore });
     } catch (error) {
         console.error('Error adding store:', error);
@@ -1332,6 +1742,22 @@ const reviewPrescriptionRequest = async (req, res) => {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Prescription request not found' });
         }
 
+        const patientName = updated?.userId?.name || 'Patient';
+        const normalizedStatus = String(status || '').toLowerCase();
+        const readableStatus = normalizedStatus === 'approved' ? 'Approved' : 'Rejected';
+        const notesText = reviewNotes ? ` Notes: ${reviewNotes}` : '';
+
+        await triggerUserNotifications({
+            userId: updated?.userId?._id,
+            emailSubject: `Prescription ${readableStatus}`,
+            emailMessage: `Hi ${patientName}, your prescription has been ${readableStatus.toLowerCase()} by the store.${notesText}`,
+            emailHtml: buildPrescriptionStatusEmailHtml({
+                    status: readableStatus,
+                    reviewNotes,
+            }),
+            smsMessage: `Prescription ${readableStatus}. ${reviewNotes ? `Notes: ${reviewNotes}` : 'Please check dashboard for details.'}`,
+        });
+
         return res.status(StatusCodes.OK).json({
             message: `Prescription ${status}`,
             prescription: updated,
@@ -1390,6 +1816,18 @@ const updateOrderTrackingStatus = async (req, res) => {
 
         order.trackingStatus = trackingStatus;
         await order.save();
+
+        await triggerUserNotifications({
+            userId: order.userId,
+            emailSubject: `Order ${order.orderId} is now ${trackingStatus}`,
+            emailMessage: `Your order ${order.orderId} tracking status has been updated to ${trackingStatus}.`,
+            emailHtml: buildOrderTrackingEmailHtml({
+                    orderId: order.orderId,
+                    trackingStatus,
+                    deliveryType: deliveryType || order.deliveryType,
+            }),
+            smsMessage: `Order ${order.orderId}: ${trackingStatus}`,
+        });
 
         return res.status(StatusCodes.OK).json({ 
             message: 'Tracking status updated successfully', 
@@ -1992,6 +2430,17 @@ const answerStoreQuery = async (req, res) => {
                 message: 'Query not found',
             });
         }
+
+        await triggerUserNotifications({
+            userId: updatedQuery?.userId?._id,
+            emailSubject: `Response to your query: ${updatedQuery.subject}`,
+            emailMessage: `Your query has been answered by the store.\n\nSubject: ${updatedQuery.subject}\nAnswer: ${answer}`,
+            emailHtml: buildQueryAnsweredEmailHtml({
+                    subject: updatedQuery.subject,
+                    answer,
+            }),
+            smsMessage: `Your query has been answered: ${answer}`,
+        });
 
         return res.status(StatusCodes.OK).json({
             success: true,
