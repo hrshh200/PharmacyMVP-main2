@@ -65,6 +65,16 @@ const triggerUserNotifications = async ({ userId, emailSubject, emailMessage, em
     }
 };
 
+const runInBackground = (label, task) => {
+    setImmediate(async () => {
+        try {
+            await task();
+        } catch (error) {
+            console.error(`[BackgroundTask][${label}] Failed:`, error?.message || error);
+        }
+    });
+};
+
 const escapeHtml = (value) =>
         String(value ?? '')
                 .replace(/&/g, '&amp;')
@@ -573,15 +583,17 @@ const signUp = async (req, res) => {
 
             // Save the new user
                 const newUser = await User.create(userData);
-                await sendDirectEmailSafely({
-                    to: newUser.email,
-                    subject: 'Welcome to Pharmacy MVP',
-                    text: `Hello ${newUser.name || newUser.firstName || 'User'}, your Pharmacy MVP account has been created successfully. You can now sign in with ${newUser.email} and start using the dashboard features.`,
-                    html: buildWelcomeUserEmailHtml({
-                        name: newUser.name || [newUser.firstName, newUser.lastName].filter(Boolean).join(' '),
-                        email: newUser.email,
-                    }),
-                    context: 'user-signup',
+                runInBackground('user-signup-email', async () => {
+                    await sendDirectEmailSafely({
+                        to: newUser.email,
+                        subject: 'Welcome to Pharmacy MVP',
+                        text: `Hello ${newUser.name || newUser.firstName || 'User'}, your Pharmacy MVP account has been created successfully. You can now sign in with ${newUser.email} and start using the dashboard features.`,
+                        html: buildWelcomeUserEmailHtml({
+                            name: newUser.name || [newUser.firstName, newUser.lastName].filter(Boolean).join(' '),
+                            email: newUser.email,
+                        }),
+                        context: 'user-signup',
+                    });
                 });
             res.status(StatusCodes.CREATED).json({ message: "User created successfully" });
         }
@@ -1253,22 +1265,24 @@ const finalpayment = async (req, res) => {
         const orderPlacedStatus = updatedOrder.trackingStatus || 'Order Placed';
         const orderPlacedAmount = Number(updatedOrder.totalPrice || 0).toFixed(2);
 
-        const notificationResult = await triggerUserNotifications({
-            userId: updatedOrder.userId,
-            emailSubject: `Order placed successfully: ${updatedOrder.orderId}`,
-            emailMessage: `Your order has been placed successfully.\n\nOrder ID: ${updatedOrder.orderId}\nAmount: INR ${orderPlacedAmount}\nStatus: ${orderPlacedStatus}\n\nYou can track your order anytime from your dashboard. Thank you for ordering with Pharmacy MVP.`,
-            emailHtml: buildOrderPlacedEmailHtml({
-                orderId: updatedOrder.orderId,
-                amount: updatedOrder.totalPrice,
-                status: orderPlacedStatus,
-            }),
-            smsMessage: null,
-        });
+        runInBackground('order-placed-notification', async () => {
+            const notificationResult = await triggerUserNotifications({
+                userId: updatedOrder.userId,
+                emailSubject: `Order placed successfully: ${updatedOrder.orderId}`,
+                emailMessage: `Your order has been placed successfully.\n\nOrder ID: ${updatedOrder.orderId}\nAmount: INR ${orderPlacedAmount}\nStatus: ${orderPlacedStatus}\n\nYou can track your order anytime from your dashboard. Thank you for ordering with Pharmacy MVP.`,
+                emailHtml: buildOrderPlacedEmailHtml({
+                    orderId: updatedOrder.orderId,
+                    amount: updatedOrder.totalPrice,
+                    status: orderPlacedStatus,
+                }),
+                smsMessage: null,
+            });
 
-        console.log('[Notification][OrderPlaced] Dispatch summary', {
-            orderId: updatedOrder.orderId,
-            userId: String(updatedOrder.userId),
-            result: notificationResult,
+            console.log('[Notification][OrderPlaced] Dispatch summary', {
+                orderId: updatedOrder.orderId,
+                userId: String(updatedOrder.userId),
+                result: notificationResult,
+            });
         });
 
         return res.status(200).json({
@@ -1406,15 +1420,17 @@ const createStoreApprovalRequest = async (req, res) => {
 
         const createdRequest = await StoreApprovalRequest.create(requestPayload);
 
-        await sendDirectEmailSafely({
-            to: createdRequest.email,
-            subject: 'Store signup request received',
-            text: `Hello ${createdRequest.ownerName}, your store signup request for ${createdRequest.storeName} has been submitted successfully. We will notify you once the review is completed.`,
-            html: buildStoreRequestEmailHtml({
-                storeName: createdRequest.storeName,
-                ownerName: createdRequest.ownerName,
-            }),
-            context: 'store-request-submitted',
+        runInBackground('store-request-submitted-email', async () => {
+            await sendDirectEmailSafely({
+                to: createdRequest.email,
+                subject: 'Store signup request received',
+                text: `Hello ${createdRequest.ownerName}, your store signup request for ${createdRequest.storeName} has been submitted successfully. We will notify you once the review is completed.`,
+                html: buildStoreRequestEmailHtml({
+                    storeName: createdRequest.storeName,
+                    ownerName: createdRequest.ownerName,
+                }),
+                context: 'store-request-submitted',
+            });
         });
 
         return res.status(StatusCodes.CREATED).json({
@@ -1503,30 +1519,34 @@ const reviewStoreApprovalRequest = async (req, res) => {
         }
 
             if (status === 'approved' && createdStore) {
-                await sendDirectEmailSafely({
-                    to: request.email,
-                    subject: 'Your store has been approved',
-                    text: `Hello ${request.ownerName}, your store ${request.storeName} has been approved. Login email: ${request.email}. Temporary password: ${createdStore.password}. Please sign in and change your password.`,
-                    html: buildStoreApprovedEmailHtml({
-                        storeName: request.storeName,
-                        ownerName: request.ownerName,
-                        email: request.email,
-                        password: createdStore.password,
-                    }),
-                    context: 'store-request-approved',
+                runInBackground('store-request-approved-email', async () => {
+                    await sendDirectEmailSafely({
+                        to: request.email,
+                        subject: 'Your store has been approved',
+                        text: `Hello ${request.ownerName}, your store ${request.storeName} has been approved. Login email: ${request.email}. Temporary password: ${createdStore.password}. Please sign in and change your password.`,
+                        html: buildStoreApprovedEmailHtml({
+                            storeName: request.storeName,
+                            ownerName: request.ownerName,
+                            email: request.email,
+                            password: createdStore.password,
+                        }),
+                        context: 'store-request-approved',
+                    });
                 });
             }
 
             if (status === 'rejected') {
-                await sendDirectEmailSafely({
-                    to: request.email,
-                    subject: 'Your store request was not approved',
-                    text: `Hello ${request.ownerName}, your store request for ${request.storeName} was not approved. Notes: ${reviewNotes || 'No additional notes were provided.'}`,
-                    html: buildStoreRejectedEmailHtml({
-                        storeName: request.storeName,
-                        reviewNotes,
-                    }),
-                    context: 'store-request-rejected',
+                runInBackground('store-request-rejected-email', async () => {
+                    await sendDirectEmailSafely({
+                        to: request.email,
+                        subject: 'Your store request was not approved',
+                        text: `Hello ${request.ownerName}, your store request for ${request.storeName} was not approved. Notes: ${reviewNotes || 'No additional notes were provided.'}`,
+                        html: buildStoreRejectedEmailHtml({
+                            storeName: request.storeName,
+                            reviewNotes,
+                        }),
+                        context: 'store-request-rejected',
+                    });
                 });
             }
 
@@ -1638,17 +1658,19 @@ const addStore = async (req, res) => {
 
         await newStore.save();
 
-        await sendDirectEmailSafely({
-            to: newStore.email,
-            subject: 'Your Pharmacy MVP store account is ready',
-            text: `Hello ${newStore.ownerName}, your store ${newStore.storeName} has been created successfully. Login email: ${newStore.email}. Temporary password: ${plainPassword}. Please sign in and change your password.`,
-            html: buildStoreApprovedEmailHtml({
-                storeName: newStore.storeName,
-                ownerName: newStore.ownerName,
-                email: newStore.email,
-                password: plainPassword,
-            }),
-            context: 'store-manual-create',
+        runInBackground('store-manual-create-email', async () => {
+            await sendDirectEmailSafely({
+                to: newStore.email,
+                subject: 'Your Pharmacy MVP store account is ready',
+                text: `Hello ${newStore.ownerName}, your store ${newStore.storeName} has been created successfully. Login email: ${newStore.email}. Temporary password: ${plainPassword}. Please sign in and change your password.`,
+                html: buildStoreApprovedEmailHtml({
+                    storeName: newStore.storeName,
+                    ownerName: newStore.ownerName,
+                    email: newStore.email,
+                    password: plainPassword,
+                }),
+                context: 'store-manual-create',
+            });
         });
 
         return res.status(StatusCodes.CREATED).json({ message: 'Store added successfully', store: newStore });
@@ -1747,15 +1769,17 @@ const reviewPrescriptionRequest = async (req, res) => {
         const readableStatus = normalizedStatus === 'approved' ? 'Approved' : 'Rejected';
         const notesText = reviewNotes ? ` Notes: ${reviewNotes}` : '';
 
-        await triggerUserNotifications({
-            userId: updated?.userId?._id,
-            emailSubject: `Prescription ${readableStatus}`,
-            emailMessage: `Hi ${patientName}, your prescription has been ${readableStatus.toLowerCase()} by the store.${notesText}`,
-            emailHtml: buildPrescriptionStatusEmailHtml({
-                    status: readableStatus,
-                    reviewNotes,
-            }),
-            smsMessage: `Prescription ${readableStatus}. ${reviewNotes ? `Notes: ${reviewNotes}` : 'Please check dashboard for details.'}`,
+        runInBackground('prescription-review-notification', async () => {
+            await triggerUserNotifications({
+                userId: updated?.userId?._id,
+                emailSubject: `Prescription ${readableStatus}`,
+                emailMessage: `Hi ${patientName}, your prescription has been ${readableStatus.toLowerCase()} by the store.${notesText}`,
+                emailHtml: buildPrescriptionStatusEmailHtml({
+                        status: readableStatus,
+                        reviewNotes,
+                }),
+                smsMessage: `Prescription ${readableStatus}. ${reviewNotes ? `Notes: ${reviewNotes}` : 'Please check dashboard for details.'}`,
+            });
         });
 
         return res.status(StatusCodes.OK).json({
@@ -1817,16 +1841,18 @@ const updateOrderTrackingStatus = async (req, res) => {
         order.trackingStatus = trackingStatus;
         await order.save();
 
-        await triggerUserNotifications({
-            userId: order.userId,
-            emailSubject: `Order ${order.orderId} is now ${trackingStatus}`,
-            emailMessage: `Your order ${order.orderId} tracking status has been updated to ${trackingStatus}.`,
-            emailHtml: buildOrderTrackingEmailHtml({
-                    orderId: order.orderId,
-                    trackingStatus,
-                    deliveryType: deliveryType || order.deliveryType,
-            }),
-            smsMessage: `Order ${order.orderId}: ${trackingStatus}`,
+        runInBackground('order-tracking-notification', async () => {
+            await triggerUserNotifications({
+                userId: order.userId,
+                emailSubject: `Order ${order.orderId} is now ${trackingStatus}`,
+                emailMessage: `Your order ${order.orderId} tracking status has been updated to ${trackingStatus}.`,
+                emailHtml: buildOrderTrackingEmailHtml({
+                        orderId: order.orderId,
+                        trackingStatus,
+                        deliveryType: deliveryType || order.deliveryType,
+                }),
+                smsMessage: `Order ${order.orderId}: ${trackingStatus}`,
+            });
         });
 
         return res.status(StatusCodes.OK).json({ 
@@ -2431,15 +2457,17 @@ const answerStoreQuery = async (req, res) => {
             });
         }
 
-        await triggerUserNotifications({
-            userId: updatedQuery?.userId?._id,
-            emailSubject: `Response to your query: ${updatedQuery.subject}`,
-            emailMessage: `Your query has been answered by the store.\n\nSubject: ${updatedQuery.subject}\nAnswer: ${answer}`,
-            emailHtml: buildQueryAnsweredEmailHtml({
-                    subject: updatedQuery.subject,
-                    answer,
-            }),
-            smsMessage: `Your query has been answered: ${answer}`,
+        runInBackground('query-answer-notification', async () => {
+            await triggerUserNotifications({
+                userId: updatedQuery?.userId?._id,
+                emailSubject: `Response to your query: ${updatedQuery.subject}`,
+                emailMessage: `Your query has been answered by the store.\n\nSubject: ${updatedQuery.subject}\nAnswer: ${answer}`,
+                emailHtml: buildQueryAnsweredEmailHtml({
+                        subject: updatedQuery.subject,
+                        answer,
+                }),
+                smsMessage: `Your query has been answered: ${answer}`,
+            });
         });
 
         return res.status(StatusCodes.OK).json({

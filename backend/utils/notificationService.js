@@ -8,13 +8,20 @@ const toBool = (value) => {
   return false;
 };
 
-const isMailgunSmtpConfigured = () => {
-  return Boolean(
-    process.env.MAILGUN_SMTP_HOST &&
-      process.env.MAILGUN_SMTP_USER &&
-      process.env.MAILGUN_SMTP_PASS &&
-      process.env.MAILGUN_FROM_EMAIL
-  );
+const getSmtpConfig = () => {
+  const host = process.env.MAILTRAP_SMTP_HOST || process.env.MAILGUN_SMTP_HOST || '';
+  const port = Number(process.env.MAILTRAP_SMTP_PORT || process.env.MAILGUN_SMTP_PORT || 587);
+  const secure = toBool(process.env.MAILTRAP_SMTP_SECURE ?? process.env.MAILGUN_SMTP_SECURE);
+  const user = process.env.MAILTRAP_SMTP_USER || process.env.MAILGUN_SMTP_USER || '';
+  const pass = process.env.MAILTRAP_SMTP_PASS || process.env.MAILGUN_SMTP_PASS || '';
+  const from = process.env.MAILTRAP_FROM_EMAIL || process.env.MAILGUN_FROM_EMAIL || '';
+
+  return { host, port, secure, user, pass, from };
+};
+
+const isEmailSmtpConfigured = () => {
+  const cfg = getSmtpConfig();
+  return Boolean(cfg.host && cfg.user && cfg.pass && cfg.from);
 };
 
 const isTwilioConfigured = () => {
@@ -39,28 +46,30 @@ const buildPhoneNumber = (user) => {
   return `${normalizedCountryCode}${rawMobile}`;
 };
 
-const sendEmailViaMailgunSmtp = async ({ to, subject, text, html }) => {
-  if (!isMailgunSmtpConfigured()) {
+const sendEmailViaSmtp = async ({ to, subject, text, html }) => {
+  if (!isEmailSmtpConfigured()) {
     return {
       sent: false,
       bypassed: true,
-      reason: 'MAILGUN SMTP config missing',
+      reason: 'SMTP config missing (MAILTRAP_/MAILGUN_)',
       channel: 'email',
     };
   }
 
+  const smtpConfig = getSmtpConfig();
+
   const transporter = nodemailer.createTransport({
-    host: process.env.MAILGUN_SMTP_HOST,
-    port: Number(process.env.MAILGUN_SMTP_PORT || 587),
-    secure: toBool(process.env.MAILGUN_SMTP_SECURE),
+    host: smtpConfig.host,
+    port: smtpConfig.port,
+    secure: smtpConfig.secure,
     auth: {
-      user: process.env.MAILGUN_SMTP_USER,
-      pass: process.env.MAILGUN_SMTP_PASS,
+      user: smtpConfig.user,
+      pass: smtpConfig.pass,
     },
   });
 
   await transporter.sendMail({
-    from: process.env.MAILGUN_FROM_EMAIL,
+    from: smtpConfig.from,
     to,
     subject,
     text,
@@ -74,15 +83,15 @@ const sendEmailViaMailgunSmtp = async ({ to, subject, text, html }) => {
   };
 };
 
-const sendEmailViaMailgun = async ({ to, subject, text, html }) => {
-  if (isMailgunSmtpConfigured()) {
-    return sendEmailViaMailgunSmtp({ to, subject, text, html });
+const sendEmailNotification = async ({ to, subject, text, html }) => {
+  if (isEmailSmtpConfigured()) {
+    return sendEmailViaSmtp({ to, subject, text, html });
   }
 
   return {
     sent: false,
     bypassed: true,
-    reason: 'MAILGUN SMTP config missing',
+    reason: 'SMTP config missing (MAILTRAP_/MAILGUN_)',
     channel: 'email',
   };
 };
@@ -150,7 +159,7 @@ const sendUserNotification = async ({
   const canSendSms = Boolean(preferences?.isSmsNotificationOn);
 
   if (canSendEmail && user?.email && emailSubject && emailMessage) {
-    output.email = await sendEmailViaMailgun({
+    output.email = await sendEmailNotification({
       to: user.email,
       subject: emailSubject,
       text: emailMessage,
@@ -184,8 +193,8 @@ const sendUserNotification = async ({
 };
 
 module.exports = {
-  isMailgunSmtpConfigured,
+  isEmailSmtpConfigured,
   isTwilioConfigured,
-  sendEmailNotification: sendEmailViaMailgun,
+  sendEmailNotification,
   sendUserNotification,
 };
