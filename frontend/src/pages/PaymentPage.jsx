@@ -37,14 +37,23 @@ const paymentMethods = [
 
 export function PaymentPage() {
   const latestOrderStorageKey = 'medVisionLatestOrderId';
+  const checkoutCartStorageKey = 'medVisionCheckoutCart';
   const navigate = useNavigate();
   const [selectedMethod, setSelectedMethod] = useState('card');
-  const [loading, setLoading] = useState(false);
-  const [userdata, setUserData] = useState([]);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [userdata, setUserData] = useState(null);
   const [account, setAccount] = useState('');
   const location = useLocation();
   const currentOrderId = location.state?.orderId || localStorage.getItem(latestOrderStorageKey);
-  const routeCartItems = location.state?.cartItems || [];
+  const storedCheckoutCart = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(checkoutCartStorageKey) || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  const routeCartItems = location.state?.cartItems?.length ? location.state.cartItems : storedCheckoutCart;
   const fallbackCartItems = (userdata?.orderedmedicines || []).map((medicine, index) => ({
     id: index,
     name: medicine.medicine,
@@ -52,14 +61,31 @@ export function PaymentPage() {
     quantity: medicine.quantity || 1,
   }));
   const cartItems = routeCartItems.length ? routeCartItems : fallbackCartItems;
-  const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-  const payableAmount = 10;
+
+  const parseItemPrice = (item) => {
+    const rawPrice = item?.price ?? item?.totalPrice ?? 0;
+    const numericPrice = Number(rawPrice);
+    return Number.isFinite(numericPrice) ? numericPrice : 0;
+  };
+
+  const parseItemQuantity = (item) => {
+    const numericQuantity = Number(item?.quantity ?? 1);
+    return Number.isFinite(numericQuantity) && numericQuantity > 0 ? numericQuantity : 1;
+  };
+
+  const totalItems = cartItems.reduce((sum, item) => sum + parseItemQuantity(item), 0);
+  const payableAmount = cartItems.reduce(
+    (sum, item) => sum + parseItemPrice(item) * parseItemQuantity(item),
+    0
+  );
+
   const formattedPayableAmount = new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'INR',
   }).format(payableAmount);
 
   const fetchDataFromApi = async () => {
+    setPageLoading(true);
     try {
       const token = localStorage.getItem('medVisionToken');
       const response = await axios.get(`${baseURL}/fetchdata`, {
@@ -73,6 +99,8 @@ export function PaymentPage() {
       localStorage.setItem('userData', JSON.stringify(fetchedData));
     } catch (error) {
       console.error('Error fetching data:', error.message);
+    } finally {
+      setPageLoading(false);
     }
   };
 
@@ -87,17 +115,15 @@ export function PaymentPage() {
         return false;
       }
 
-      setLoading(true);
+      setIsProcessing(true);
       const accounts = await window.ethereum.request({
         method: 'eth_requestAccounts'
       });
 
       setAccount(accounts[0]);
-      setLoading(false);
       return true;
     } catch (error) {
       console.error('Error connecting wallet:', error);
-      setLoading(false);
       return false;
     }
   };
@@ -124,8 +150,6 @@ export function PaymentPage() {
         gasLimit: 21000n
       };
 
-      setLoading(true);
-
       const transaction = await signer.sendTransaction(tx);
       await transaction.wait();
 
@@ -144,13 +168,18 @@ export function PaymentPage() {
       toast.error('MetaMask payment failed. Please try again.');
       return false;
     } finally {
-      setLoading(false);
+      setIsProcessing(false);
     }
   };
 
   const handlePayment = async () => {
     if (!cartItems.length) {
       toast.error('Your cart is empty.');
+      return;
+    }
+
+    if (payableAmount <= 0) {
+      toast.error('Unable to process payment because order amount is invalid.');
       return;
     }
 
@@ -164,7 +193,7 @@ export function PaymentPage() {
       if (!isPaid) return;
     }
 
-    setLoading(true);
+    setIsProcessing(true);
     try {
       if (!currentOrderId) {
         throw new Error('Order ID not found');
@@ -178,9 +207,10 @@ export function PaymentPage() {
 
       if (response.status === 200) {
         localStorage.setItem(latestOrderStorageKey, currentOrderId);
+        localStorage.removeItem(checkoutCartStorageKey);
         setTimeout(() => {
           deletecartitems();
-          setLoading(false);
+          setIsProcessing(false);
           toast.success(response.data.message);
           navigate('/orderconfirmation', { state: { orderId: currentOrderId } });
           console.log(cartItems);
@@ -189,7 +219,7 @@ export function PaymentPage() {
       }
     } catch (error) {
       console.log("Error updating the address to order");
-      setLoading(false);
+      setIsProcessing(false);
     }
   };
 
@@ -207,7 +237,7 @@ export function PaymentPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-slate-50 to-white px-4 sm:px-6 lg:px-8 pb-12" style={{ paddingTop: 'calc(var(--app-navbar-offset, 88px) + 3rem)' }}>
-      {loading ? (
+      {pageLoading ? (
         <div className="flex justify-center items-center min-h-[50vh]">
           <div className="loader w-16 h-16 border-4 border-t-blue-600 border-gray-300 rounded-full animate-spin"></div>
         </div>
@@ -302,9 +332,10 @@ export function PaymentPage() {
 
               <button
                 onClick={handlePayment}
-                className="w-full mt-3 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors"
+                disabled={isProcessing || payableAmount <= 0}
+                className="w-full mt-3 bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors"
               >
-                Complete Order
+                {isProcessing ? 'Processing Payment...' : 'Complete Order'}
               </button>
             </div>
           </div>

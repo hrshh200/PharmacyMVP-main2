@@ -9,6 +9,7 @@ import CheckoutFooter from '../components/CheckoutFooter';
 
 export function AddressPage() {
   const latestOrderStorageKey = 'medVisionLatestOrderId';
+  const checkoutCartStorageKey = 'medVisionCheckoutCart';
   const navigate = useNavigate();
   const [userdata, setUserData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -24,7 +25,14 @@ export function AddressPage() {
   });
   const location = useLocation();
   const currentOrderId = location.state?.orderId || localStorage.getItem(latestOrderStorageKey);
-  const cartItems = location.state?.cartItems || [];
+  const storedCheckoutCart = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(checkoutCartStorageKey) || '[]');
+    } catch {
+      return [];
+    }
+  })();
+  const cartItems = location.state?.cartItems?.length ? location.state.cartItems : storedCheckoutCart;
   const totalAmount = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -83,6 +91,7 @@ export function AddressPage() {
         setTimeout(() => {
           setLoading(false);
           toast.success(response.data.message);
+          localStorage.setItem(checkoutCartStorageKey, JSON.stringify(cartItems));
           navigate('/payments', {
             state: {
               cartItems: cartItems,

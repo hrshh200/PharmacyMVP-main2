@@ -63,6 +63,34 @@ const Orders = () => {
     return 10;
   };
 
+  const getPaymentMeta = (paymentType) => {
+    const raw = String(paymentType || '').trim();
+    const normalized = raw.toLowerCase();
+
+    const paymentMap = {
+      cod: { label: 'Cash on Delivery', className: 'bg-amber-50 border-amber-200 text-amber-700' },
+      cashondelivery: { label: 'Cash on Delivery', className: 'bg-amber-50 border-amber-200 text-amber-700' },
+      card: { label: 'Card Payment', className: 'bg-blue-50 border-blue-200 text-blue-700' },
+      creditcard: { label: 'Credit Card', className: 'bg-blue-50 border-blue-200 text-blue-700' },
+      debitcard: { label: 'Debit Card', className: 'bg-blue-50 border-blue-200 text-blue-700' },
+      upi: { label: 'UPI', className: 'bg-violet-50 border-violet-200 text-violet-700' },
+      netbanking: { label: 'Net Banking', className: 'bg-cyan-50 border-cyan-200 text-cyan-700' },
+      wallet: { label: 'Wallet', className: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+      pickup: { label: 'Pay at Pickup', className: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700' },
+    };
+
+    if (paymentMap[normalized]) return paymentMap[normalized];
+    if (!raw) return { label: 'Not Available', className: 'bg-slate-100 border-slate-200 text-slate-600' };
+
+    const readable = raw
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+
+    return { label: readable, className: 'bg-slate-50 border-slate-200 text-slate-700' };
+  };
+
   // Filter orders where status is "Booked"
   const filteredOrders = orders.filter((order) => order.status === 'Booked');
   const totalOrders = filteredOrders.length;
@@ -105,6 +133,7 @@ const Orders = () => {
             {filteredOrders.map((order, index) => {
               const amount = getOrderAmount(order);
               const itemCount = order.items?.length || 0;
+              const paymentMeta = getPaymentMeta(order.payment);
               return (
                 <li
                   key={index}
@@ -128,7 +157,10 @@ const Orders = () => {
                       </p>
                       <p className="text-sm text-gray-700 inline-flex items-center gap-1.5">
                         <CreditCard className="w-4 h-4 text-gray-500" />
-                        <span><span className="font-medium">Payment:</span> {order.payment || 'N/A'}</span>
+                        <span className="font-medium">Payment:</span>
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${paymentMeta.className}`}>
+                          {paymentMeta.label}
+                        </span>
                       </p>
                       <p className="text-sm text-gray-700">
                         <span className="font-medium">Items:</span> {itemCount}

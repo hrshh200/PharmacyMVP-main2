@@ -58,6 +58,27 @@ const Home = () => {
     return () => window.clearTimeout(timeoutId);
   }, [location.state, navigate]);
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+          }
+        });
+      },
+      { threshold: 0.14, rootMargin: "0px 0px -60px 0px" },
+    );
+
+    const elements = document.querySelectorAll(".reveal-on-scroll");
+    elements.forEach((element) => observer.observe(element));
+
+    return () => {
+      elements.forEach((element) => observer.unobserve(element));
+      observer.disconnect();
+    };
+  }, []);
+
   return (
     <div className="w-full overflow-hidden bg-[#f7fbff]">
       <section
@@ -176,7 +197,7 @@ const Home = () => {
         </div>
       </section>
 
-      <section className="px-4 sm:px-6 lg:px-16 pb-10">
+      <section className="reveal-on-scroll px-4 sm:px-6 lg:px-16 pb-10">
         <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 md:grid-cols-4">
           {[
             { icon: Clock, label: "24/7 Order Support", tone: "text-sky-700 bg-sky-100 border-sky-200" },
@@ -184,7 +205,7 @@ const Home = () => {
             { icon: Truck, label: "Fast Doorstep Delivery", tone: "text-emerald-700 bg-emerald-100 border-emerald-200" },
             { icon: FileText, label: "Quick Prescription Upload", tone: "text-violet-700 bg-violet-100 border-violet-200" },
           ].map((feature, i) => (
-            <div key={i} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
+            <div key={i} className="lift-on-hover rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
               <div className={`mb-3 inline-flex rounded-xl border p-2.5 ${feature.tone}`}>
                 <feature.icon className="h-5 w-5" />
               </div>
@@ -194,7 +215,7 @@ const Home = () => {
         </div>
       </section>
 
-      <section className="px-4 sm:px-6 lg:px-16 pb-14">
+      <section className="reveal-on-scroll px-4 sm:px-6 lg:px-16 pb-14">
         <div className="mx-auto max-w-7xl rounded-[2rem] border border-cyan-100 bg-gradient-to-r from-cyan-50 via-white to-emerald-50 p-6 shadow-lg md:p-8">
           <div className="grid gap-7 lg:grid-cols-[1.2fr_1fr] lg:items-center">
             <div>
@@ -252,7 +273,7 @@ const Home = () => {
         </div>
       </section>
 
-      <section id="about" className="relative overflow-hidden px-4 sm:px-6 lg:px-16 py-20">
+      <section id="about" className="reveal-on-scroll relative overflow-hidden px-4 sm:px-6 lg:px-16 py-20">
         <div className="absolute -left-24 top-10 h-64 w-64 rounded-full bg-cyan-200/25 blur-3xl" />
         <div className="absolute -right-24 bottom-0 h-72 w-72 rounded-full bg-sky-200/25 blur-3xl" />
 
@@ -298,7 +319,7 @@ const Home = () => {
                 type="button"
                 key={index}
                 onClick={service.onClick}
-                className="group relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-7 text-left shadow-md transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl"
+                className="lift-on-hover group relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-7 text-left shadow-md transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl"
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${service.accent} opacity-0 transition-opacity duration-300 group-hover:opacity-100`} />
                 <div className="relative z-10">

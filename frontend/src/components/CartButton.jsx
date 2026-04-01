@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 const CartButton = ({ openOnMount = false }) => {
   const latestOrderStorageKey = 'medVisionLatestOrderId';
   const cartIdStorageKey = 'medVisionCartId';
+  const checkoutCartStorageKey = 'medVisionCheckoutCart';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cartItems, setCartItems] = useState([]);
   const [cartId, setCartId] = useState(null);
@@ -167,6 +168,7 @@ const CartButton = ({ openOnMount = false }) => {
   const handletoAddress = async () => {
     try {
       console.log("Cart Items being sent:", cartItems); // Debug log
+      localStorage.setItem(checkoutCartStorageKey, JSON.stringify(cartItems));
       
       const response = await axios.post(`${baseURL}/additemstocart`, {
         id: userData?._id, // Passing user ID if required
@@ -188,7 +190,12 @@ const CartButton = ({ openOnMount = false }) => {
         });
       }
       else if(response.status === 201){
-        navigate('/addresspage', { state: { orderId: currentOrderId } });
+        navigate('/addresspage', {
+          state: {
+            cartItems: cartItems,
+            orderId: currentOrderId,
+          },
+        });
         toast.success(response.data.message);
       }
     } catch (error) {
