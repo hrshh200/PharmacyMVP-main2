@@ -1562,10 +1562,10 @@ const reviewStoreApprovalRequest = async (req, res) => {
 };
 
 const getAllStores = async (req, res) => {
-    const adminAccess = verifyAdminRequest(req);
-    if (!adminAccess.ok) {
-        return res.status(adminAccess.status).json({ message: adminAccess.message });
-    }
+    // const adminAccess = verifyAdminRequest(req);
+    // if (!adminAccess.ok) {
+    //     return res.status(adminAccess.status).json({ message: adminAccess.message });
+    // }
 
     try {
         const stores = await Store.find().sort({ createdAt: -1 });
@@ -2653,8 +2653,33 @@ const importPatientsFromCsv = async (req, res) => {
     }
 };
 
+const getMedicinesByStore = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    if (!storeId) {
+      return res.status(400).json({ success: false, message: "Store ID is required" });
+    }
+
+    const medicines = await Pharmacy.find({ storeId });
+
+    res.status(200).json({
+      success: true,
+      medicines,
+    });
+  } catch (error) {
+    console.error("Error fetching medicines by store:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+
 module.exports = {
     signUp, signIn, fetchData, adminsignIn, AdminfetchData, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences,
     uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest,
-    getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv
+    getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv,
+    getMedicinesByStore
 };
