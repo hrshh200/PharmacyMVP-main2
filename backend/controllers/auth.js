@@ -513,17 +513,58 @@ const AdminfetchData = async (req, res) => {
 
 const UpdatePatientProfile = async (req, res) => {
     try {
-        const { name, address, mobile, weight, dob, height, sex, bloodgroup } = req.body;
+        const userId = req.user?._id;
 
-        // Find and update the doctor's profile based on the registration number
-        const updatedPatient = await User.findOneAndUpdate(
-            { name },
-            { address, mobile, weight, dob, height, sex, bloodgroup },
-            { new: true, runValidators: true } // Options: return the updated document and run validation
-        );
+        if (!userId) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({
+                message: 'Unauthorized',
+            });
+        }
+
+        const {
+            firstName,
+            middleName,
+            lastName,
+            email,
+            mobile,
+            address,
+            city,
+            state,
+            pincode,
+        } = req.body;
+
+        const updatePayload = {};
+
+        if (typeof firstName === 'string') updatePayload.firstName = firstName.trim();
+        if (typeof middleName === 'string') updatePayload.middleName = middleName.trim();
+        if (typeof lastName === 'string') updatePayload.lastName = lastName.trim();
+        if (typeof email === 'string') updatePayload.email = email.trim();
+        if (typeof mobile === 'string') updatePayload.mobile = mobile.trim();
+        if (typeof address === 'string') updatePayload.address = address.trim();
+        if (typeof city === 'string') updatePayload.city = city.trim();
+        if (typeof state === 'string') updatePayload.state = state.trim();
+        if (typeof pincode === 'string') updatePayload.pincode = pincode.trim();
+
+        const computedFirstName = updatePayload.firstName ?? '';
+        const computedMiddleName = updatePayload.middleName ?? '';
+        const computedLastName = updatePayload.lastName ?? '';
+        const fullName = [computedFirstName, computedMiddleName, computedLastName]
+            .map((part) => String(part || '').trim())
+            .filter(Boolean)
+            .join(' ');
+
+        if (fullName) {
+            updatePayload.name = fullName;
+        }
+
+        const updatedPatient = await User.findByIdAndUpdate(
+            userId,
+            { $set: updatePayload },
+            { new: true, runValidators: true }
+        ).select('-hash_password');
 
         if (!updatedPatient) {
-            return res.status(404).json({ message: 'Doctor not found' });
+            return res.status(404).json({ message: 'Patient not found' });
         }
 
         res.status(200).json({
@@ -1569,6 +1610,7 @@ const getCart = async (req, res) => {
 const seedVaccinationMasterIfEmpty = async () => {
   try {
     const VaccinationMaster = require("../models/vaccinationMaster");
+        await ensureUserVaccinationIndexes();
     const count = await VaccinationMaster.countDocuments();
     if (count === 0) {
       const vaccinations = [
@@ -1636,23 +1678,58 @@ const seedVaccinationMasterIfEmpty = async () => {
   }
 };
 
+const ensureUserVaccinationIndexes = async () => {
+    const UserVaccination = require("../models/userVaccination");
+    const collection = UserVaccination.collection;
+    const indexes = await collection.indexes();
+
+    const hasLegacyIndex = indexes.some((index) => index.name === "userId_1_vaccinationId_1");
+    if (hasLegacyIndex) {
+        await collection.dropIndex("userId_1_vaccinationId_1");
+    }
+
+    const hasNewIndex = indexes.some((index) => index.name === "userId_1_vaccinationMasterId_1");
+    if (!hasNewIndex) {
+        await collection.createIndex(
+            { userId: 1, vaccinationMasterId: 1 },
+            { unique: true, name: "userId_1_vaccinationMasterId_1" }
+        );
+    }
+};
+
 const upsertUserVaccination = async (req, res) => {
   try {
-    const { vaccineId, vaccineName, vaccinationDate, nextDueDate, certificateUrl } = req.body;
+        const { vaccineId, vaccinationMasterId, vaccineName, vaccinationDate } = req.body;
     const userId = req.user._id;
 
+        await ensureUserVaccinationIndexes();
+
     const UserVaccination = require("../models/userVaccination");
+        const VaccinationMaster = require("../models/vaccinationMaster");
+
+        let resolvedVaccinationMasterId = vaccinationMasterId || vaccineId;
+
+        if (!resolvedVaccinationMasterId && vaccineName) {
+            const master = await VaccinationMaster.findOne({ name: vaccineName });
+            resolvedVaccinationMasterId = master?._id;
+        }
+
+        if (!resolvedVaccinationMasterId) {
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                status: "error",
+                message: "vaccinationMasterId is required",
+            });
+        }
+
+        const isVaccinated = Boolean(vaccinationDate);
     
     const vaccination = await UserVaccination.findOneAndUpdate(
-      { userId, vaccineId },
+            { userId, vaccinationMasterId: resolvedVaccinationMasterId },
       {
         userId,
-        vaccineId,
-        vaccineName,
-        vaccinationDate,
-        nextDueDate,
-        certificateUrl,
-        status: vaccinationDate ? "Completed" : "Pending",
+                vaccinationMasterId: resolvedVaccinationMasterId,
+                vaccinationDate: isVaccinated ? new Date(vaccinationDate) : null,
+                status: isVaccinated ? "Completed" : "Pending",
       },
       { upsert: true, new: true }
     );
@@ -1675,7 +1752,10 @@ const getUserVaccinations = async (req, res) => {
     const userId = req.user._id;
     const UserVaccination = require("../models/userVaccination");
 
-    const vaccinations = await UserVaccination.find({ userId });
+        const vaccinations = await UserVaccination.find({ userId }).populate(
+            "vaccinationMasterId",
+            "name vaccineId"
+        );
 
     res.status(StatusCodes.OK).json({
       status: "success",
@@ -1693,83 +1773,55 @@ const getVaccinationMaster = async (req, res) => {
     try {
         const VaccinationMaster = require("../models/vaccinationMaster");
         const vaccines = await VaccinationMaster.find().sort({ name: 1 });
-
-        res.status(StatusCodes.OK).json({
-            status: "success",
-            vaccines,
-        });
+        res.status(StatusCodes.OK).json({ status: "success", vaccines });
     } catch (error) {
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-            status: "error",
-            message: error.message,
-        });
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ status: "error", message: error.message });
     }
 };
 
+// Returns user vaccination records keyed by vaccinationMasterId
 const getUserVaccinationsForDashboard = async (req, res) => {
     try {
         const userId = req.user._id;
         const UserVaccination = require("../models/userVaccination");
-        const VaccinationMaster = require("../models/vaccinationMaster");
 
-        const [records, masterList] = await Promise.all([
-            UserVaccination.find({ userId }),
-            VaccinationMaster.find(),
-        ]);
+        const records = await UserVaccination.find({ userId })
+            .populate("vaccinationMasterId", "name vaccineId");
 
-        const masterByVaccineId = new Map(masterList.map((m) => [m.vaccineId, m]));
+        const normalized = records.map((r) => ({
+            _id: r._id,
+            vaccinationId: {
+                _id: r.vaccinationMasterId?._id,
+                name: r.vaccinationMasterId?.name,
+            },
+            status: r.status === "Completed" ? "vaccinated" : "not_vaccinated",
+            vaccinationDate: r.vaccinationDate,
+        }));
 
-        const normalized = records.map((r) => {
-            const master = masterByVaccineId.get(r.vaccineId);
-            return {
-                _id: r._id,
-                vaccinationId: {
-                    _id: master ? master._id : r.vaccineId,
-                    vaccineId: r.vaccineId,
-                    name: r.vaccineName,
-                },
-                status: r.status === "Completed" ? "vaccinated" : "not_vaccinated",
-                vaccinationDate: r.vaccinationDate,
-            };
-        });
-
-        res.status(StatusCodes.OK).json({
-            status: "success",
-            records: normalized,
-        });
+        res.status(StatusCodes.OK).json({ status: "success", records: normalized });
     } catch (error) {
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-            status: "error",
-            message: error.message,
-        });
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ status: "error", message: error.message });
     }
 };
 
+// PUT /user-vaccinations/:vaccinationId  (vaccinationId = VaccinationMaster _id)
 const updateUserVaccinationByMasterId = async (req, res) => {
     try {
         const userId = req.user._id;
         const { vaccinationId } = req.params;
         const { status, vaccinationDate } = req.body;
 
-        const UserVaccination = require("../models/userVaccination");
-        const VaccinationMaster = require("../models/vaccinationMaster");
+        await ensureUserVaccinationIndexes();
 
-        const master = await VaccinationMaster.findById(vaccinationId);
-        if (!master) {
-            return res.status(StatusCodes.NOT_FOUND).json({
-                status: "error",
-                message: "Vaccination master record not found",
-            });
-        }
+        const UserVaccination = require("../models/userVaccination");
 
         const isVaccinated = status === "vaccinated";
 
         const record = await UserVaccination.findOneAndUpdate(
-            { userId, vaccineId: master.vaccineId },
+            { userId, vaccinationMasterId: vaccinationId },
             {
                 userId,
-                vaccineId: master.vaccineId,
-                vaccineName: master.name,
+                vaccinationMasterId: vaccinationId,
                 vaccinationDate: isVaccinated && vaccinationDate ? new Date(vaccinationDate) : null,
                 status: isVaccinated ? "Completed" : "Pending",
             },
@@ -1782,10 +1834,7 @@ const updateUserVaccinationByMasterId = async (req, res) => {
             data: record,
         });
     } catch (error) {
-        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-            status: "error",
-            message: error.message,
-        });
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ status: "error", message: error.message });
     }
 };
 

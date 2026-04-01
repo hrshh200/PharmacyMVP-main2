@@ -6,27 +6,18 @@ const userVaccinationSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
-  vaccineId: {
-    type: String,
-    required: true,
-  },
-  vaccineName: {
-    type: String,
+  vaccinationMasterId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "VaccinationMaster",
     required: true,
   },
   vaccinationDate: {
     type: Date,
-    required: false,
-  },
-  nextDueDate: {
-    type: Date,
-  },
-  certificateUrl: {
-    type: String,
+    default: null,
   },
   status: {
     type: String,
-    enum: ["Completed", "Pending", "Overdue"],
+    enum: ["Completed", "Pending"],
     default: "Pending",
   },
   createdAt: {
@@ -34,5 +25,11 @@ const userVaccinationSchema = new mongoose.Schema({
     default: Date.now,
   },
 });
+
+// One vaccination record per user per vaccine master entry.
+userVaccinationSchema.index(
+  { userId: 1, vaccinationMasterId: 1 },
+  { unique: true, name: "userId_1_vaccinationMasterId_1" }
+);
 
 module.exports = mongoose.model("UserVaccination", userVaccinationSchema);

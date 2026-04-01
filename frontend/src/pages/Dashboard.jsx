@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { Activity, Calendar, Pill, FileText, Clock, User, Mail, Phone, Menu, X, Home, CircleUser as UserCircle, ShoppingBag, Syringe, Bell, MessageSquare, Mail as MailIcon, Pencil, ClipboardList, DollarSign, Package, Truck, ChevronDown, ChevronUp, CreditCard, Plus, Minus, Trash2 } from 'lucide-react';
+import { Activity, Calendar, Pill, FileText, Clock, User, Mail, Phone, Menu, X, Home, CircleUser as UserCircle, ShoppingBag, Syringe, Bell, MessageSquare, Mail as MailIcon, Pencil, ClipboardList, DollarSign, Package, Truck, ChevronDown, ChevronUp, CreditCard, Plus, Minus, Trash2, CheckCircle2 } from 'lucide-react';
 import { baseURL } from '../main';
 import Loader from '../components/Loader';
 import PrescriptionDialog from '../components/PrescriptionDialog';
@@ -28,6 +28,7 @@ const Dashboard = () => {
     const [prescriptionsLoading, setPrescriptionsLoading] = useState(false);
     const [expandedDashboardOrder, setExpandedDashboardOrder] = useState(null);
     const [isEditingProfile, setIsEditingProfile] = useState(false);
+    const [isProfileSaving, setIsProfileSaving] = useState(false);
     const [profileForm, setProfileForm] = useState({
         firstName: '',
         middleName: '',
@@ -51,6 +52,8 @@ const Dashboard = () => {
     const [notificationSettingsLoading, setNotificationSettingsLoading] = useState(true);
     const [notificationSettingsSaving, setNotificationSettingsSaving] = useState(false);
     const [notificationSettingsMessage, setNotificationSettingsMessage] = useState(null);
+    const [pendingNotificationChange, setPendingNotificationChange] = useState(null);
+    const [notificationToggleSuccess, setNotificationToggleSuccess] = useState(false);
     const [isRefillModalOpen, setIsRefillModalOpen] = useState(false);
     const [placingPrescriptionOrder, setPlacingPrescriptionOrder] = useState(false);
     const [refillDraft, setRefillDraft] = useState({
@@ -186,7 +189,7 @@ const Dashboard = () => {
         setIsEditingProfile(false);
     };
 
-    const handleProfileSave = () => {
+    const handleProfileSave = async () => {
         const errors = {};
         const trimmedFirstName = profileForm.firstName.trim();
         const trimmedMiddleName = profileForm.middleName.trim();
@@ -219,21 +222,49 @@ const Dashboard = () => {
             return;
         }
 
-        setUserData((prev) => ({
-            ...prev,
-            name: fullName,
-            firstName: trimmedFirstName,
-            middleName: trimmedMiddleName,
-            lastName: trimmedLastName,
-            email: trimmedEmail,
-            mobile: trimmedMobile,
-            address: trimmedAddress,
-            city: trimmedCity,
-            state: trimmedState,
-            pincode: trimmedPincode,
-        }));
-        setProfileErrors({});
-        setIsEditingProfile(false);
+        const token = localStorage.getItem('medVisionToken');
+
+        if (!token) {
+            alert('Please login again to update profile.');
+            return;
+        }
+
+        try {
+            setIsProfileSaving(true);
+            const response = await axios.post(
+                `${baseURL}/patientprofile`,
+                {
+                    name: fullName,
+                    firstName: trimmedFirstName,
+                    middleName: trimmedMiddleName,
+                    lastName: trimmedLastName,
+                    email: trimmedEmail,
+                    mobile: trimmedMobile,
+                    address: trimmedAddress,
+                    city: trimmedCity,
+                    state: trimmedState,
+                    pincode: trimmedPincode,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+
+            const updatedUser = response.data?.user;
+            if (updatedUser) {
+                setUserData(updatedUser);
+                localStorage.setItem('userData', JSON.stringify(updatedUser));
+            }
+            setProfileErrors({});
+            setIsEditingProfile(false);
+        } catch (error) {
+            console.error('Error saving profile:', error.message);
+            alert(error.response?.data?.message || 'Unable to save profile. Please try again.');
+        } finally {
+            setIsProfileSaving(false);
+        }
     };
 
     const isApprovedPrescription = (status) => {
@@ -415,6 +446,36 @@ const Dashboard = () => {
     const handleNotificationToggle = (key, value) => {
         setNotifications((prev) => ({ ...prev, [key]: value }));
         setNotificationSettingsMessage(null);
+    };
+
+    const openNotificationToggleDialog = (key, value) => {
+        if (notificationSettingsLoading || notificationSettingsSaving) return;
+
+        setPendingNotificationChange({
+            key,
+            value,
+            label: key === 'sms' ? 'SMS' : 'Email',
+        });
+    };
+
+    const closeNotificationToggleDialog = () => {
+        setNotificationToggleSuccess(false);
+        setPendingNotificationChange(null);
+    };
+
+    const confirmNotificationToggle = () => {
+        if (!pendingNotificationChange) return;
+
+        const { key, value, label } = pendingNotificationChange;
+        handleNotificationToggle(key, value);
+        setNotificationSettingsMessage({
+            type: 'success',
+            text: `${label} notifications ${value ? 'enabled' : 'disabled'}. Click "Save Preferences" to apply changes.`,
+        });
+        setNotificationToggleSuccess(true);
+        window.setTimeout(() => {
+            closeNotificationToggleDialog();
+        }, 850);
     };
 
     const handleNotificationSave = async () => {
@@ -1083,7 +1144,7 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                                 type="checkbox"
                                                 className="sr-only peer"
                                                 checked={notifications.sms}
-                                                onChange={(e) => handleNotificationToggle('sms', e.target.checked)}
+                                                onChange={(e) => openNotificationToggleDialog('sms', e.target.checked)}
                                                 disabled={notificationSettingsLoading || notificationSettingsSaving}
                                             />
                                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
@@ -1105,7 +1166,7 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                                 type="checkbox"
                                                 className="sr-only peer"
                                                 checked={notifications.email}
-                                                onChange={(e) => handleNotificationToggle('email', e.target.checked)}
+                                                onChange={(e) => openNotificationToggleDialog('email', e.target.checked)}
                                                 disabled={notificationSettingsLoading || notificationSettingsSaving}
                                             />
                                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
@@ -1148,6 +1209,7 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                             <MessageSquare className="text-cyan-600" size={20} />
                                         </div>
                                         <div>
+
                                             <h2 className="text-xl font-bold text-gray-800">Raise a Query</h2>
                                             <p className="text-sm text-gray-500">We typically respond within 24 hours.</p>
                                         </div>
@@ -1398,9 +1460,10 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                             <>
                                                 <button
                                                     onClick={handleProfileSave}
-                                                    className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold py-3 rounded-xl hover:opacity-90 transition"
+                                                    disabled={isProfileSaving}
+                                                    className={`flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white font-semibold py-3 rounded-xl transition ${isProfileSaving ? 'opacity-70 cursor-not-allowed' : 'hover:opacity-90'}`}
                                                 >
-                                                    Save Changes
+                                                    {isProfileSaving ? 'Saving...' : 'Save Changes'}
                                                 </button>
                                                 <button
                                                     onClick={handleProfileCancel}
@@ -1758,6 +1821,83 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                     {placingPrescriptionOrder ? 'Preparing Checkout...' : 'Proceed To Place Order'}
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {pendingNotificationChange && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-sm">
+                    <div className="w-full max-w-md overflow-hidden rounded-3xl border border-cyan-100 bg-white shadow-2xl">
+                        <div className="relative bg-gradient-to-r from-cyan-500 to-emerald-500 px-6 py-5 text-white">
+                            <button
+                                type="button"
+                                onClick={closeNotificationToggleDialog}
+                                className="absolute right-3 top-3 rounded-full bg-white/20 p-1.5 text-white transition hover:bg-white/30"
+                                aria-label="Close notification dialog"
+                            >
+                                <X size={16} />
+                            </button>
+                            <div className="flex items-center gap-3">
+                                <div className="rounded-xl bg-white/20 p-2.5">
+                                    {pendingNotificationChange.key === 'sms' ? (
+                                        <MessageSquare size={20} />
+                                    ) : (
+                                        <MailIcon size={20} />
+                                    )}
+                                </div>
+                                <div>
+                                    <p className="text-xs uppercase tracking-wide text-white/80">Notification Update</p>
+                                    <h3 className="text-lg font-bold">
+                                        {pendingNotificationChange.value ? 'Enable Alerts' : 'Disable Alerts'}
+                                    </h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 px-6 py-5">
+                            {notificationToggleSuccess ? (
+                                <div className="flex flex-col items-center justify-center py-4 text-center">
+                                    <div className="relative mb-3 flex h-16 w-16 items-center justify-center">
+                                        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-70 animate-ping"></span>
+                                        <span className="absolute inline-flex h-14 w-14 rounded-full bg-emerald-100"></span>
+                                        <span className="relative inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-white">
+                                            <CheckCircle2 size={24} />
+                                        </span>
+                                    </div>
+                                    <p className="text-base font-semibold text-emerald-700">Preference updated</p>
+                                    <p className="mt-1 text-sm text-slate-600">Your change has been applied locally.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    <p className="text-sm leading-relaxed text-slate-600">
+                                        {pendingNotificationChange.value
+                                            ? `Great choice! ${pendingNotificationChange.label} alerts keep you informed about important pharmacy updates.`
+                                            : `You are turning off ${pendingNotificationChange.label} alerts. You may miss important pharmacy updates.`}
+                                    </p>
+
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                                        Your preference will be applied after you click Save Preferences.
+                                    </div>
+
+                                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={closeNotificationToggleDialog}
+                                            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={confirmNotificationToggle}
+                                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                                        >
+                                            Confirm
+                                        </button>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

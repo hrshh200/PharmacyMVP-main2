@@ -76,7 +76,7 @@ const storeRequestUpload = multer({
 // Define routes for authentication
 router.post("/login", signIn);
 router.post("/signup", signUp);
-router.post("/patientprofile", UpdatePatientProfile);
+router.post("/patientprofile", verifyToken(["User"]), UpdatePatientProfile);
 router.get("/fetchdata", verifyToken(["User", "Store"]), fetchData);
 router.get("/user-notifications", verifyToken(["User"]), getUserNotificationPreferences);
 router.put("/user-notifications", verifyToken(["User"]), updateUserNotificationPreferences);
