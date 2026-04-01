@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { AlertCircle, CalendarDays, CheckCircle, FileText, Pill, Stethoscope, Upload, UserRound, X } from 'lucide-react';
 import { baseURL } from '../main';
 
-const PrescriptionDialog = ({ isOpen, onClose, onUploaded }) => {
+const PrescriptionDialog = ({ isOpen, onClose, onUploaded, prescriptionRequestId = null }) => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -45,13 +45,23 @@ const PrescriptionDialog = ({ isOpen, onClose, onUploaded }) => {
       const formData = new FormData();
       formData.append('prescription', selectedFile);
 
-      await axios.post(`${baseURL}/prescriptions/upload`, formData, {
+      const isReupload = Boolean(prescriptionRequestId);
+      const endpoint = isReupload
+        ? `${baseURL}/prescriptions/${prescriptionRequestId}/reupload`
+        : `${baseURL}/prescriptions/upload`;
+
+      await axios({
+        method: isReupload ? 'patch' : 'post',
+        url: endpoint,
+        data: formData,
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      toast.success('Prescription uploaded successfully. Awaiting store review.');
+      toast.success(isReupload
+        ? 'Prescription re-uploaded successfully. Awaiting fresh review.'
+        : 'Prescription uploaded successfully. Awaiting store review.');
       setSelectedFile(null);
       if (typeof onUploaded === 'function') {
         onUploaded();

@@ -10,75 +10,92 @@ function Tracking() {
   // Retrieve the id from the URL parameters
   const { id } = useParams();
   const [userdata, setUserData] = useState([]);
+  const [order, setOrder] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Example tracking data (replace this with API data based on the id)
-  const [trackingStatus, setTrackingStatus] = useState({
-    orderNumber: id || "ORD123456789",
-    estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }),
-    currentStatus: "",
-    statuses: [
-      { id: 1, status: "Booked", completed: false, time: "Pending", text: "Order Placed" },
-      { id: 2, status: "shipped", completed: false, time: "Pending", text: "Order Shipped" },
-      { id: 3, status: "in-transit", completed: false, time: "Pending", text: "In Transit" },
-      { id: 4, status: "out-delivery", completed: false, time: "Pending", text: "Out for Delivery" },
-      { id: 5, status: "delivered", completed: false, time: "Pending", text: "Delivered" }
-    ]
-  });
-  const statusOrder = ['Booked', 'shipped', 'in-transit', 'out-delivery', 'delivered'];
+  const getTrackingSteps = (deliveryType) => {
+    if (deliveryType === 'pickup') {
+      return [
+        { id: 1, status: "Order Placed", icon: "Clock" },
+        { id: 2, status: "Packed", icon: "Package" },
+        { id: 3, status: "Ready for Pick Up", icon: "MapPin" },
+        { id: 4, status: "Picked Up", icon: "CheckCircle" }
+      ];
+    } else {
+      return [
+        { id: 1, status: "Order Placed", icon: "Clock" },
+        { id: 2, status: "Packed", icon: "Package" },
+        { id: 3, status: "Out for Delivery", icon: "Truck" },
+        { id: 4, status: "Delivered", icon: "CheckCircle" }
+      ];
+    }
+  };
 
-  const completedSteps = trackingStatus.statuses.filter((item) => item.completed).length;
-  const progressPercent = Math.round((completedSteps / trackingStatus.statuses.length) * 100);
-  const currentStatusLabel = trackingStatus.statuses.find((item) => item.status === trackingStatus.currentStatus)?.text || 'Booked';
-
-  
-  const fetchDataFromApi = async () => {
-      try {
-        const token = localStorage.getItem('medVisionToken');
-        const [userResponse, orderResponse] = await Promise.all([
-          axios.get(`${baseURL}/fetchdata`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          axios.get(`${baseURL}/orders/${id}`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-        ]);
-        const fetchedData = userResponse.data.userData;
-        const matchedId = orderResponse.data.order;
-        setUserData(fetchedData);
-
-        if (matchedId) {
-          const currentStatus = matchedId.status;
-          const updatedStatuses = trackingStatus.statuses.map((item) => ({
-            ...item,
-            completed: statusOrder.indexOf(item.status) <= statusOrder.indexOf(currentStatus),
-            time: statusOrder.indexOf(item.status) <= statusOrder.indexOf(currentStatus)
-              ? new Date().toLocaleString()
-              : "TBD"
-          }));
-        
-          setTrackingStatus(prev => ({
-            ...prev,
-            currentStatus: currentStatus,
-            statuses: updatedStatuses
-          }));
-        }
-        localStorage.setItem('userData', JSON.stringify(fetchedData));
-      } catch (error) {
-        console.error('Error fetching data:', error.message);
-      }
+  const getIconComponent = (iconName) => {
+    const iconMap = {
+      Clock,
+      Package,
+      Truck,
+      MapPin,
+      CheckCircle
     };
-  
-    useEffect(() => {
-      fetchDataFromApi();
-    }, []);
+    return iconMap[iconName] || Package;
+  };
+
+  const fetchDataFromApi = async () => {
+    try {
+      const token = localStorage.getItem('medVisionToken');
+      const [userResponse, orderResponse] = await Promise.all([
+        axios.get(`${baseURL}/fetchdata`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+        axios.get(`${baseURL}/orders/${id}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }),
+      ]);
+      const fetchedData = userResponse.data.userData;
+      const fetchedOrder = orderResponse.data.order;
+      setUserData(fetchedData);
+      setOrder(fetchedOrder);
+      localStorage.setItem('userData', JSON.stringify(fetchedData));
+    } catch (error) {
+      console.error('Error fetching data:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDataFromApi();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-sky-50 via-slate-50 to-white px-4 sm:px-6 lg:px-8 pb-8" style={{ paddingTop: 'calc(var(--app-navbar-offset, 88px) + 2rem)' }}>
+        <div className="max-w-5xl mx-auto text-center py-12">
+          <p className="text-gray-600">Loading tracking information...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-sky-50 via-slate-50 to-white px-4 sm:px-6 lg:px-8 pb-8" style={{ paddingTop: 'calc(var(--app-navbar-offset, 88px) + 2rem)' }}>
+        <div className="max-w-5xl mx-auto text-center py-12">
+          <p className="text-gray-600">Order not found</p>
+        </div>
+      </div>
+    );
+  }
+
+  const steps = getTrackingSteps(order.deliveryType || 'delivery');
+  const currentStatusIndex = steps.findIndex(step => step.status === order.trackingStatus);
+  const progressPercent = Math.round(((currentStatusIndex + 1) / steps.length) * 100);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 via-slate-50 to-white px-4 sm:px-6 lg:px-8 pb-8" style={{ paddingTop: 'calc(var(--app-navbar-offset, 88px) + 2rem)' }}>
@@ -98,7 +115,7 @@ function Tracking() {
                 <p className="text-[11px] uppercase tracking-wide text-blue-100">Order ID</p>
                 <p className="text-lg font-semibold flex items-center gap-1.5">
                   <ClipboardList className="w-4 h-4" />
-                  {trackingStatus.orderNumber}
+                  {order?.orderId || id}
                 </p>
               </div>
               <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 min-w-[150px] border border-white/20">
@@ -118,11 +135,11 @@ function Tracking() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Current Status</p>
-              <p className="text-base font-semibold text-slate-900 mt-1">{currentStatusLabel}</p>
+              <p className="text-base font-semibold text-slate-900 mt-1">{order.trackingStatus || 'Order Placed'}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Estimated Delivery</p>
-              <p className="text-base font-semibold text-slate-900 mt-1">{trackingStatus.estimatedDelivery}</p>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Delivery Type</p>
+              <p className="text-base font-semibold text-slate-900 mt-1">{order.deliveryType === 'pickup' ? 'Store Pick Up' : 'Home Delivery'}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-wide text-slate-500">Customer</p>
@@ -136,33 +153,35 @@ function Tracking() {
 
           <div className="flow-root">
             <ul className="-mb-8">
-              {trackingStatus.statuses.map((status, index) => (
-                <li key={status.id}>
-                  <div className="relative pb-8">
-                    {index !== trackingStatus.statuses.length - 1 && (
-                      <span
-                        className={`absolute top-4 left-4 -ml-px h-full w-0.5 ${status.completed ? 'bg-emerald-300' : 'bg-gray-200'}`}
-                        aria-hidden="true"
-                      />
-                    )}
-                    <div className="relative flex space-x-3">
-                      <div>
-                        <span className={`h-9 w-9 rounded-full flex items-center justify-center ring-8 ring-white ${status.completed ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                          {status.status === 'Booked' && <Clock className="h-5 w-5 text-white" />}
-                          {status.status === 'shipped' && <Package className="h-5 w-5 text-white" />}
-                          {status.status === 'in-transit' && <Truck className="h-5 w-5 text-white" />}
-                          {status.status === 'out-delivery' && <MapPin className="h-5 w-5 text-white" />}
-                          {status.status === 'delivered' && <CheckCircle className="h-5 w-5 text-white" />}
-                        </span>
-                      </div>
-                      <div className="min-w-0 flex-1 pt-1.5">
-                        <p className={`text-sm font-semibold ${status.completed ? 'text-gray-900' : 'text-gray-500'}`}>{status.text}</p>
-                        <p className="mt-1 text-xs text-gray-500">{status.time}</p>
+              {steps.map((step, index) => {
+                const isCompleted = index <= currentStatusIndex;
+                const IconComponent = getIconComponent(step.icon);
+                return (
+                  <li key={step.id}>
+                    <div className="relative pb-8">
+                      {index !== steps.length - 1 && (
+                        <span
+                          className={`absolute top-4 left-4 -ml-px h-full w-0.5 ${isCompleted ? 'bg-emerald-300' : 'bg-gray-200'}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                      <div className="relative flex space-x-3">
+                        <div>
+                          <span className={`h-9 w-9 rounded-full flex items-center justify-center ring-8 ring-white ${isCompleted ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                            <IconComponent className="h-5 w-5 text-white" />
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1 pt-1.5">
+                          <p className={`text-sm font-semibold ${isCompleted ? 'text-gray-900' : 'text-gray-500'}`}>{step.status}</p>
+                          {isCompleted && index === currentStatusIndex && (
+                            <p className="mt-1 text-xs text-emerald-600 font-medium">Current Status</p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </div>
 

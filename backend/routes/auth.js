@@ -4,7 +4,7 @@ const multer = require("multer");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { signUp, signIn, fetchData, AdminfetchData, adminsignIn, uploadpres, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, uploadPrescriptionFile, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences, uploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest, getStoreOrders, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations } = require("../controllers/auth");
+const { signUp, signIn, fetchData, AdminfetchData, adminsignIn, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences, uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest, getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId } = require("../controllers/auth");
 const verifyToken  = require("../middleware/authMiddleware");  
 
 const uploadsDir = process.env.UPLOADS_DIR || path.join(os.tmpdir(), "medvision-uploads");
@@ -81,8 +81,9 @@ router.get("/fetchdata", verifyToken(["User", "Store"]), fetchData);
 router.get("/user-notifications", verifyToken(["User"]), getUserNotificationPreferences);
 router.put("/user-notifications", verifyToken(["User"]), updateUserNotificationPreferences);
 router.get("/adminfetchdata", verifyToken(["admin"]), AdminfetchData);
-router.post("/uploadpres", prescriptionUpload.single('prescription'), uploadpres);
+router.post("/uploadpres", prescriptionUpload.single('prescription'), uploadPrescriptionFile);
 router.post("/prescriptions/upload", verifyToken(["User"]), prescriptionUploadSingle, uploadPrescriptionRequest);
+router.patch("/prescriptions/:id/reupload", verifyToken(["User"]), prescriptionUploadSingle, reuploadPrescriptionRequest);
 router.get("/prescriptions/me", verifyToken(["User"]), getMyPrescriptionRequests);
 router.get("/prescriptions/store", verifyToken(["Store"]), getStorePrescriptionRequests);
 router.patch("/prescriptions/:id/review", verifyToken(["Store"]), reviewPrescriptionRequest);
@@ -112,8 +113,14 @@ router.put("/store-staff/:id", verifyToken(["Store"]), updateStoreStaffMember);
 router.patch("/store-staff/:id/status", verifyToken(["Store"]), updateStoreStaffStatus);
 router.delete("/store-staff/:id", verifyToken(["Store"]), deleteStoreStaffMember);
 
+// Order tracking status update
+router.patch("/orders/:orderId/tracking", verifyToken(["Store"]), updateOrderTrackingStatus);
+
 // Vaccination routes
 router.post("/vaccinations", verifyToken(["User"]), upsertUserVaccination);
 router.get("/vaccinations", verifyToken(["User"]), getUserVaccinations);
+router.get("/vaccination-master", verifyToken(["User"]), getVaccinationMaster);
+router.get("/user-vaccinations", verifyToken(["User"]), getUserVaccinationsForDashboard);
+router.put("/user-vaccinations/:vaccinationId", verifyToken(["User"]), updateUserVaccinationByMasterId);
 
 module.exports = router;

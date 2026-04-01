@@ -16,6 +16,7 @@ const MedicineCard = ({ id, name, manufacturer, dosage, price, stock, type, requ
   const [showadded, setShowAdded] = useState(false);
   const [addcart, setAddCart] = useState(false);
   const [userData, setUserData] = useState(null);
+  const [cartId, setCartId] = useState(null);
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
   const [prescriptionFile, setPrescriptionFile] = useState(null);
   // null | 'pending' | 'approved'
@@ -67,6 +68,24 @@ const MedicineCard = ({ id, name, manufacturer, dosage, price, stock, type, requ
     }
   };
 
+  // Load userData and cartId from localStorage on mount
+  useEffect(() => {
+    const storedUserData = localStorage.getItem('userData');
+    if (storedUserData) {
+      try {
+        const parsed = JSON.parse(storedUserData);
+        setUserData(parsed);
+      } catch (e) {
+        console.error("Failed to parse userData from localStorage:", e);
+      }
+    }
+
+    const storedCartId = localStorage.getItem('medVisionCartId');
+    if (storedCartId) {
+      setCartId(storedCartId);
+    }
+  }, []);
+
   const handleaddtocart = async () => {
     try {
       let userId = userData?._id;
@@ -103,6 +122,14 @@ const MedicineCard = ({ id, name, manufacturer, dosage, price, stock, type, requ
   
       if (response.status === 200) {
         console.log(`${name} added to cart successfully`);
+        
+        // Store the cartId for future operations
+        if (response.data.cartId) {
+          localStorage.setItem('medVisionCartId', response.data.cartId);
+          setCartId(response.data.cartId);
+          console.log("Cart ID stored:", response.data.cartId);
+        }
+        
         setShowAdded(true);
 
         setTimeout(() => {

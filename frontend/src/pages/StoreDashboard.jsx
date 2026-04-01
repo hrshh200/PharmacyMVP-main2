@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 import Navbar from '../components/Navbar';
 import { baseURL } from '../main';
 import {
@@ -52,6 +53,7 @@ const StoreDashboard = () => {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [updatingTrackingStatus, setUpdatingTrackingStatus] = useState(false);
   const selectedOrder = orders.find((item) => item.id === selectedOrderId);
   const parseCurrencyAmount = (value) => Number(String(value).replace(/[^\d.]/g, '')) || 0;
   const formatUSD = (value) =>
@@ -118,6 +120,50 @@ const StoreDashboard = () => {
       setSelectedOrderId(null);
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  const handleUpdateTrackingStatus = async (newStatus) => {
+    if (!selectedOrder) return;
+    
+    const token = localStorage.getItem('medVisionToken');
+    if (!token) return;
+
+    try {
+      setUpdatingTrackingStatus(true);
+      const response = await axios.patch(
+        `${baseURL}/orders/${selectedOrder.orderId}/tracking`,
+        {
+          trackingStatus: newStatus,
+          deliveryType: selectedOrder.deliveryType || 'delivery'
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (response.status === 200) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === selectedOrder.id ? { ...o, trackingStatus: newStatus } : o
+          )
+        );
+        toast.success('Tracking status updated successfully');
+      }
+    } catch (error) {
+      console.error('Failed to update tracking status:', error.message);
+      toast.error('Failed to update tracking status');
+    } finally {
+      setUpdatingTrackingStatus(false);
+    }
+  };
+
+  const getAvailableTrackingStatuses = () => {
+    const deliveryType = selectedOrder?.deliveryType || 'delivery';
+    if (deliveryType === 'pickup') {
+      return ['Order Placed', 'Packed', 'Ready for Pick Up', 'Picked Up'];
+    } else {
+      return ['Order Placed', 'Packed', 'Out for Delivery', 'Delivered'];
     }
   };
 
@@ -1018,17 +1064,29 @@ const StoreDashboard = () => {
                         <div className="mt-6 rounded-3xl bg-white p-4">
                           <p className="text-sm font-medium text-slate-500">Tracking status</p>
                           <div className="mt-4 space-y-4">
-                            {selectedOrder.tracking.map((step) => (
-                              <div key={step.step} className="flex items-start gap-4">
-                                <div className="mt-1">
-                                  <span className={`flex h-3 w-3 rounded-full ${step.status === 'complete' ? 'bg-emerald-500' : step.status === 'active' ? 'bg-sky-500' : 'bg-slate-300'}`} />
-                                </div>
-                                <div>
-                                  <p className="font-medium text-slate-900">{step.step}</p>
-                                  <p className="text-sm text-slate-500">{step.date || 'Pending'}</p>
-                                </div>
+                            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                              <p className="text-sm font-semibold text-blue-900 mb-2">Current Status</p>
+                              <p className="text-lg font-bold text-blue-700">{selectedOrder.trackingStatus || 'Order Placed'}</p>
+                            </div>
+                            <div className="border-t border-slate-200 pt-4">
+                              <p className="text-sm font-medium text-slate-600 mb-3">Update Tracking Status</p>
+                              <div className="space-y-2">
+                                {getAvailableTrackingStatuses().map((status) => (
+                                  <button
+                                    key={status}
+                                    onClick={() => handleUpdateTrackingStatus(status)}
+                                    disabled={updatingTrackingStatus || status === (selectedOrder.trackingStatus || 'Order Placed')}
+                                    className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
+                                      status === (selectedOrder.trackingStatus || 'Order Placed')
+                                        ? 'border-green-500 bg-green-50 text-green-700 font-semibold cursor-not-allowed'
+                                        : 'border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-slate-700 disabled:opacity-50'
+                                    }`}
+                                  >
+                                    {status === (selectedOrder.trackingStatus || 'Order Placed') ? '✓ ' : ''}{status}
+                                  </button>
+                                ))}
                               </div>
-                            ))}
+                            </div>
                           </div>
                         </div>
                       </>
@@ -1108,7 +1166,7 @@ const StoreDashboard = () => {
                             {selectedPrescription.status?.charAt(0).toUpperCase() + selectedPrescription.status?.slice(1)}
                           </span>
                         </div>
-                        {selectedPrescription.filePath && (
+                        {selectedPrescription.filePath && String(selectedPrescription.status || '').toLowerCase() === 'pending' && (
                           <div className="rounded-3xl border border-slate-200 bg-white p-5">
                             <div className="flex items-center justify-between gap-3">
                               <div>
@@ -1142,24 +1200,26 @@ const StoreDashboard = () => {
                             </div>
                           </div>
                         )}
-                        <div className="mt-6 flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={() => updatePrescriptionStatus(selectedPrescription._id, 'Approved')}
-                            disabled={selectedPrescription.status === 'approved'}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700 transition"
-                          >
-                            <CheckCircle2 size={18} /> Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updatePrescriptionStatus(selectedPrescription._id, 'Rejected')}
-                            disabled={selectedPrescription.status === 'rejected'}
-                            className="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 transition"
-                          >
-                            <XCircle size={18} /> Reject
-                          </button>
-                        </div>
+                        {String(selectedPrescription.status || '').toLowerCase() === 'pending' ? (
+                          <div className="mt-6 flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => updatePrescriptionStatus(selectedPrescription._id, 'Approved')}
+                              disabled={selectedPrescription.status === 'approved'}
+                              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700 transition"
+                            >
+                              <CheckCircle2 size={18} /> Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updatePrescriptionStatus(selectedPrescription._id, 'Rejected')}
+                              disabled={selectedPrescription.status === 'rejected'}
+                              className="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 transition"
+                            >
+                              <XCircle size={18} /> Reject
+                            </button>
+                          </div>
+                        ) : null}
                       </>
                     ) : (
                       <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">

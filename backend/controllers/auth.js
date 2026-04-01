@@ -123,6 +123,8 @@ const mapPatientOrder = (order) => ({
     payment: order.payment || 'Pending',
     address: order.address || 'TBD',
     status: order.status || 'Pending',
+    deliveryType: order.deliveryType || 'delivery',
+    trackingStatus: order.trackingStatus || 'Order Placed',
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
 });
@@ -150,6 +152,8 @@ const mapStoreOrder = (order) => {
             qty: Number(item.quantity) || 0,
             price: Number(item.price) || 0,
         })),
+        deliveryType: order.deliveryType || 'delivery',
+        trackingStatus: order.trackingStatus || 'Order Placed',
         tracking: buildOrderTracking(order.status, dateLabel),
     };
 };
@@ -589,6 +593,7 @@ const updateorderedmedicines = async (req, res) => {
 
         res.status(200).json({
             message: 'Medicine added to cart successfully',
+            cartId: cart._id,
             cart: cart.items
         });
     } catch (error) {
@@ -808,7 +813,7 @@ const finalitems = async (req, res) => {
 };
 
 const finaladdress = async (req, res) => {
-    const { id, orderid, address } = req.body;
+    const { id, orderid, address, deliveryType } = req.body;
 
     // Validate the request
     if (!id || !orderid || !address) {
@@ -816,9 +821,15 @@ const finaladdress = async (req, res) => {
     }
 
     try {
+        const updateData = { address };
+        if (deliveryType && ['pickup', 'delivery'].includes(deliveryType)) {
+            updateData.deliveryType = deliveryType;
+            updateData.trackingStatus = 'Order Placed';
+        }
+
         const updatedOrder = await Order.findOneAndUpdate(
             { orderId: orderid, userId: id },
-            { address },
+            updateData,
             { new: true },
         );
 
@@ -1314,6 +1325,40 @@ const getStoreOrders = async (req, res) => {
     }
 };
 
+const updateOrderTrackingStatus = async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const { trackingStatus, deliveryType } = req.body;
+        const storeId = req.user?._id;
+
+        const order = await Order.findOne({ orderId, storeId });
+        if (!order) {
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'Order not found' });
+        }
+
+        const validStatuses = {
+            pickup: ["Order Placed", "Packed", "Ready for Pick Up", "Picked Up"],
+            delivery: ["Order Placed", "Packed", "Out for Delivery", "Delivered"]
+        };
+
+        const allowedStatuses = validStatuses[deliveryType || order.deliveryType] || [];
+        if (!allowedStatuses.includes(trackingStatus)) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid tracking status for this delivery type' });
+        }
+
+        order.trackingStatus = trackingStatus;
+        await order.save();
+
+        return res.status(StatusCodes.OK).json({ 
+            message: 'Tracking status updated successfully', 
+            order 
+        });
+    } catch (error) {
+        console.error('updateOrderTrackingStatus error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to update tracking status' });
+    }
+};
+
 const getMyOrders = async (req, res) => {
     try {
         const userId = req.user?._id;
@@ -1496,19 +1541,21 @@ const deleteStoreStaffMember = async (req, res) => {
 
 const getCart = async (req, res) => {
     try {
-        const userId = req.user.userId;
+        const userId = req.user._id;
 
         let cart = await Cart.findOne({ userId });
         
         if (!cart) {
             // Return empty cart if user doesn't have one yet
             return res.status(StatusCodes.OK).json({
+                cartId: null,
                 items: [],
                 message: 'Cart is empty'
             });
         }
 
         return res.status(StatusCodes.OK).json({
+            cartId: cart._id,
             items: cart.items,
             message: 'Cart retrieved successfully'
         });
@@ -1592,7 +1639,7 @@ const seedVaccinationMasterIfEmpty = async () => {
 const upsertUserVaccination = async (req, res) => {
   try {
     const { vaccineId, vaccineName, vaccinationDate, nextDueDate, certificateUrl } = req.body;
-    const userId = req.user.userId;
+    const userId = req.user._id;
 
     const UserVaccination = require("../models/userVaccination");
     
@@ -1625,7 +1672,7 @@ const upsertUserVaccination = async (req, res) => {
 
 const getUserVaccinations = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id;
     const UserVaccination = require("../models/userVaccination");
 
     const vaccinations = await UserVaccination.find({ userId });
@@ -1642,8 +1689,148 @@ const getUserVaccinations = async (req, res) => {
   }
 };
 
+const getVaccinationMaster = async (req, res) => {
+    try {
+        const VaccinationMaster = require("../models/vaccinationMaster");
+        const vaccines = await VaccinationMaster.find().sort({ name: 1 });
+
+        res.status(StatusCodes.OK).json({
+            status: "success",
+            vaccines,
+        });
+    } catch (error) {
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+            status: "error",
+            message: error.message,
+        });
+    }
+};
+
+const getUserVaccinationsForDashboard = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const UserVaccination = require("../models/userVaccination");
+        const VaccinationMaster = require("../models/vaccinationMaster");
+
+        const [records, masterList] = await Promise.all([
+            UserVaccination.find({ userId }),
+            VaccinationMaster.find(),
+        ]);
+
+        const masterByVaccineId = new Map(masterList.map((m) => [m.vaccineId, m]));
+
+        const normalized = records.map((r) => {
+            const master = masterByVaccineId.get(r.vaccineId);
+            return {
+                _id: r._id,
+                vaccinationId: {
+                    _id: master ? master._id : r.vaccineId,
+                    vaccineId: r.vaccineId,
+                    name: r.vaccineName,
+                },
+                status: r.status === "Completed" ? "vaccinated" : "not_vaccinated",
+                vaccinationDate: r.vaccinationDate,
+            };
+        });
+
+        res.status(StatusCodes.OK).json({
+            status: "success",
+            records: normalized,
+        });
+    } catch (error) {
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+            status: "error",
+            message: error.message,
+        });
+    }
+};
+
+const updateUserVaccinationByMasterId = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { vaccinationId } = req.params;
+        const { status, vaccinationDate } = req.body;
+
+        const UserVaccination = require("../models/userVaccination");
+        const VaccinationMaster = require("../models/vaccinationMaster");
+
+        const master = await VaccinationMaster.findById(vaccinationId);
+        if (!master) {
+            return res.status(StatusCodes.NOT_FOUND).json({
+                status: "error",
+                message: "Vaccination master record not found",
+            });
+        }
+
+        const isVaccinated = status === "vaccinated";
+
+        const record = await UserVaccination.findOneAndUpdate(
+            { userId, vaccineId: master.vaccineId },
+            {
+                userId,
+                vaccineId: master.vaccineId,
+                vaccineName: master.name,
+                vaccinationDate: isVaccinated && vaccinationDate ? new Date(vaccinationDate) : null,
+                status: isVaccinated ? "Completed" : "Pending",
+            },
+            { upsert: true, new: true }
+        );
+
+        return res.status(StatusCodes.OK).json({
+            status: "success",
+            message: "Vaccination record updated",
+            data: record,
+        });
+    } catch (error) {
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+            status: "error",
+            message: error.message,
+        });
+    }
+};
+
+const reuploadPrescriptionRequest = async (req, res) => {
+    try {
+        const userId = req.user?._id;
+        const { id } = req.params;
+
+        if (!userId) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: 'Unauthorized' });
+        }
+
+        if (!req.file) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Prescription file is required' });
+        }
+
+        const existingRequest = await PrescriptionRequest.findOne({ _id: id, userId });
+        if (!existingRequest) {
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'Prescription request not found' });
+        }
+
+        existingRequest.fileName = req.file.originalname;
+        existingRequest.filePath = req.file.path;
+        existingRequest.mimeType = req.file.mimetype;
+        existingRequest.status = 'pending';
+        existingRequest.reviewNotes = '';
+        existingRequest.reviewedByStoreId = null;
+        existingRequest.reviewedAt = null;
+
+        await existingRequest.save();
+
+        return res.status(StatusCodes.OK).json({
+            message: 'Prescription re-uploaded successfully',
+            prescription: existingRequest,
+        });
+    } catch (error) {
+        console.error('reuploadPrescriptionRequest error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+            message: error?.message || 'Failed to re-upload prescription',
+        });
+    }
+};
+
 module.exports = {
-    signUp, signIn, fetchData, adminsignIn, AdminfetchData, uploadpres, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, uploadPrescriptionFile, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences,
-    uploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest,
-    getStoreOrders, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations
+    signUp, signIn, fetchData, adminsignIn, AdminfetchData, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences,
+    uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest,
+        getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId
 };

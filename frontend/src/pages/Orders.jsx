@@ -119,7 +119,7 @@ const Orders = () => {
                         </span>
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700">
                           <Truck className="w-3.5 h-3.5" />
-                          {order.status || 'Booked'}
+                          {order.trackingStatus || order.status || 'Booked'}
                         </span>
                       </div>
 

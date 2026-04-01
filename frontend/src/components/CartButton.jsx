@@ -9,9 +9,11 @@ import toast from 'react-hot-toast';
 
 const CartButton = ({ openOnMount = false }) => {
   const latestOrderStorageKey = 'medVisionLatestOrderId';
+  const cartIdStorageKey = 'medVisionCartId';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cartItems, setCartItems] = useState([]);
-  const [userData, setUserData] = useState([]);
+  const [cartId, setCartId] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
   const navigate = useNavigate();
 
@@ -53,6 +55,13 @@ const CartButton = ({ openOnMount = false }) => {
           Authorization: `Bearer ${token}`,
         },
       });
+      
+      // Store cartId from response for future use
+      if (cartResponse.data.cartId) {
+        localStorage.setItem(cartIdStorageKey, cartResponse.data.cartId);
+        setCartId(cartResponse.data.cartId);
+        console.log("Cart ID from API:", cartResponse.data.cartId);
+      }
       
       if (cartResponse.data.items && cartResponse.data.items.length > 0) {
         const cartItems = cartResponse.data.items.map((item, index) => ({

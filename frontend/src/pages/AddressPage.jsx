@@ -12,6 +12,7 @@ export function AddressPage() {
   const navigate = useNavigate();
   const [userdata, setUserData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [deliveryType, setDeliveryType] = useState('delivery');
   const [formData, setFormData] = useState({
     fullName: userdata?.name || '',
     email: userdata?.email || '',
@@ -74,7 +75,8 @@ export function AddressPage() {
       const response = await axios.post(`${baseURL}/addaddress`, {
         id: userdata?._id,
         orderid: currentOrderId,
-        address: formData.address
+        address: formData.address,
+        deliveryType: deliveryType
       });
 
       if (response.status === 200) {
@@ -85,6 +87,7 @@ export function AddressPage() {
             state: {
               cartItems: cartItems,
               orderId: currentOrderId,
+              deliveryType: deliveryType
             }
           })
         }, 1000)
@@ -197,6 +200,36 @@ export function AddressPage() {
                     required
                     className="flex-1 bg-transparent focus:outline-none"
                   />
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  <label className="text-sm font-semibold text-gray-700">Delivery Type</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryType('pickup')}
+                      className={`p-4 rounded-xl border-2 transition-all text-left ${
+                        deliveryType === 'pickup'
+                          ? 'border-blue-600 bg-blue-50'
+                          : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-gray-900">Store Pick Up</div>
+                      <div className="text-sm text-gray-600">Pick up from store</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryType('delivery')}
+                      className={`p-4 rounded-xl border-2 transition-all text-left ${
+                        deliveryType === 'delivery'
+                          ? 'border-blue-600 bg-blue-50'
+                          : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-gray-900">Home Delivery</div>
+                      <div className="text-sm text-gray-600">We'll deliver to you</div>
+                    </button>
+                  </div>
                 </div>
               </div>
 

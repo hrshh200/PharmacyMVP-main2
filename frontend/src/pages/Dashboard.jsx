@@ -13,6 +13,7 @@ const Dashboard = () => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isPrescriptionDialogOpen, setIsPrescriptionDialogOpen] = useState(false);
+    const [reuploadPrescriptionId, setReuploadPrescriptionId] = useState(null);
     const [showPrescriptions, setShowPrescriptions] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
     const [showRaiseQuery, setShowRaiseQuery] = useState(false);
@@ -238,6 +239,13 @@ const Dashboard = () => {
     const isApprovedPrescription = (status) => {
         const value = String(status || '').toLowerCase();
         return value === 'approved' || value === 'active';
+    };
+
+    const getPrescriptionStatusText = (status) => {
+        const value = String(status || '').toLowerCase();
+        if (value === 'approved' || value === 'active') return 'Approved by pharmacy';
+        if (value === 'rejected') return 'Your prescription is rejected. Please re-upload a clearer file.';
+        return 'Our Pharmacists are carefully reviewing your Prescription. Stay in Touch!';
     };
 
     const fetchMyPrescriptionRequests = async () => {
@@ -873,7 +881,10 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                         <p className="text-sm text-slate-500 mt-0.5">Approved prescriptions can be ordered directly.</p>
                                     </div>
                                     <button
-                                        onClick={() => setIsPrescriptionDialogOpen(true)}
+                                        onClick={() => {
+                                            setReuploadPrescriptionId(null);
+                                            setIsPrescriptionDialogOpen(true);
+                                        }}
                                         className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition"
                                     >
                                         <Pill size={15} />
@@ -901,7 +912,7 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                                                     {prescription.fileName || 'Prescription Upload'}
                                                                 </h3>
                                                                 <p className="text-purple-600 font-medium">
-                                                                    {(prescription.mimeType || '').toUpperCase() || 'Uploaded Document'}
+                                                                    {getPrescriptionStatusText(prescription.status)}
                                                                 </p>
                                                             </div>
                                                         </div>
@@ -910,7 +921,7 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                                             <div className="flex items-center space-x-2">
                                                                 <Clock className="text-gray-400" size={16} />
                                                                 <span className="text-sm text-gray-600">
-                                                                    Review pending with store
+                                                                    {getPrescriptionStatusText(prescription.status)}
                                                                 </span>
                                                             </div>
                                                             <div className="flex items-center space-x-2">
@@ -922,16 +933,54 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                                             <div className="flex items-center space-x-2">
                                                                 <User className="text-gray-400" size={16} />
                                                                 <span className="text-sm text-gray-600">
-                                                                    Store review workflow
+                                                                    {prescription.reviewedAt
+                                                                        ? `Reviewed: ${formatDashboardOrderDate(prescription.reviewedAt)}`
+                                                                        : 'Review: In progress'}
                                                                 </span>
                                                             </div>
                                                             <div className="flex items-center space-x-2">
                                                                 <FileText className="text-gray-400" size={16} />
                                                                 <span className="text-sm text-gray-600">
-                                                                    {prescription.filePath}
+                                                                    {Array.isArray(prescription.medicines) && prescription.medicines.length > 0
+                                                                        ? `${prescription.medicines.length} medicine${prescription.medicines.length > 1 ? 's' : ''} added`
+                                                                        : 'Medicines will appear after review'}
                                                                 </span>
                                                             </div>
                                                         </div>
+
+                                                        {prescription.reviewNotes && (
+                                                            <div className="mt-4 rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
+                                                                Pharmacist notes: {prescription.reviewNotes}
+                                                            </div>
+                                                        )}
+
+                                                        {String(prescription.status || '').toLowerCase() === 'rejected' && (
+                                                            <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">
+                                                                Your prescription is rejected. Reason can be less visibility of the prescription or missing required information. Can you re-upload it?
+                                                            </div>
+                                                        )}
+
+                                                        {String(prescription.status || '').toLowerCase() === 'rejected' && (
+                                                            <div className="mt-4">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setReuploadPrescriptionId(prescription._id);
+                                                                        setIsPrescriptionDialogOpen(true);
+                                                                    }}
+                                                                    className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 transition"
+                                                                >
+                                                                    <FileText size={16} />
+                                                                    Re-upload Prescription
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {isApprovedPrescription(prescription.status) && (
+                                                            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">
+                                                                Your Prescription is Approved. Stay in touch!!
+                                                            </div>
+                                                        )}
 
                                                         {Array.isArray(prescription.medicines) && prescription.medicines.length > 0 && (
                                                             <div className="mt-4 flex flex-wrap gap-2">
@@ -988,7 +1037,10 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                         <h3 className="text-lg font-medium text-gray-600 mb-2">No Prescriptions Yet</h3>
                                         <p className="text-gray-500 mb-6">Upload your first prescription to get started</p>
                                         <button
-                                            onClick={() => setIsPrescriptionDialogOpen(true)}
+                                            onClick={() => {
+                                                setReuploadPrescriptionId(null);
+                                                setIsPrescriptionDialogOpen(true);
+                                            }}
                                             className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-800 transition"
                                         >
                                             Upload Prescription
@@ -1429,12 +1481,12 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
                                                                 Order #{order.id || 'N/A'}
                                                             </span>
                                                             <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                                                                order.status === 'Delivered'
+                                                                order.trackingStatus === 'Delivered' || order.trackingStatus === 'Picked Up'
                                                                     ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
                                                                     : 'bg-amber-50 border border-amber-200 text-amber-700'
                                                             }`}>
                                                                 <Truck className="w-3.5 h-3.5" />
-                                                                {order.status}
+                                                                {order.trackingStatus || order.status}
                                                             </span>
                                                         </div>
 
@@ -1610,8 +1662,12 @@ ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
 
             <PrescriptionDialog
                 isOpen={isPrescriptionDialogOpen}
-                onClose={() => setIsPrescriptionDialogOpen(false)}
+                onClose={() => {
+                    setIsPrescriptionDialogOpen(false);
+                    setReuploadPrescriptionId(null);
+                }}
                 onUploaded={fetchMyPrescriptionRequests}
+                prescriptionRequestId={reuploadPrescriptionId}
             />
 
             {isRefillModalOpen && (

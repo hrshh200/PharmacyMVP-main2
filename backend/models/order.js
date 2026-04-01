@@ -20,6 +20,8 @@ const orderSchema = new mongoose.Schema(
     payment: { type: String, required: true, default: "Pending" },
     address: { type: String, required: true, default: "TBD" },
     status: { type: String, required: true, default: "Pending" },
+    deliveryType: { type: String, enum: ["pickup", "delivery"], required: true, default: "delivery" },
+    trackingStatus: { type: String, required: true, default: "Order Placed" },
   },
   { timestamps: true },
 );

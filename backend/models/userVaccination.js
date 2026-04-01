@@ -16,7 +16,7 @@ const userVaccinationSchema = new mongoose.Schema({
   },
   vaccinationDate: {
     type: Date,
-    required: true,
+    required: false,
   },
   nextDueDate: {
     type: Date,
