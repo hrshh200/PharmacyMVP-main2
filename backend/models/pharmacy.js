@@ -7,6 +7,11 @@ const pharmacySchema = new mongoose.Schema({
     //   require: true,
     //   unique: true,
   },
+  storeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store',
+    required: true
+  },
   manufacturer: {
     type: String,
     //   require: true,
@@ -20,15 +25,15 @@ const pharmacySchema = new mongoose.Schema({
     type: String,
     //  require: true
   },
-  price : {
+  price: {
     type: Number,
     //  require: true
   },
-  stock : {
+  stock: {
     type: Number,
     //  require: true
   }
-},{ collection: "pharmacy" });
+}, { collection: "pharmacy" });
 
 
 
