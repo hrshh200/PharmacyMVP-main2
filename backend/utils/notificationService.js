@@ -8,13 +8,39 @@ const toBool = (value) => {
   return false;
 };
 
+const isNotificationDebugEnabled = () =>
+  toBool(process.env.NOTIFICATION_DEBUG || process.env.DEBUG_NOTIFICATIONS);
+
+const debugNotification = (level, message, meta = {}) => {
+  if (!isNotificationDebugEnabled()) return;
+
+  const logger = console[level] || console.info;
+  logger(`[Notification][Debug] ${message}`, meta);
+};
+
+const maskEmail = (email) => {
+  const value = String(email || '').trim();
+  if (!value.includes('@')) return value;
+
+  const [localPart, domain] = value.split('@');
+  if (localPart.length <= 2) return `${localPart[0] || '*'}***@${domain}`;
+
+  return `${localPart.slice(0, 2)}***@${domain}`;
+};
+
+const maskPhone = (phone) => {
+  const value = String(phone || '').trim();
+  if (value.length <= 4) return value;
+  return `${'*'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
+};
+
 const getSmtpConfig = () => {
-  const host = process.env.MAILTRAP_SMTP_HOST || process.env.MAILGUN_SMTP_HOST || '';
-  const port = Number(process.env.MAILTRAP_SMTP_PORT || process.env.MAILGUN_SMTP_PORT || 587);
-  const secure = toBool(process.env.MAILTRAP_SMTP_SECURE ?? process.env.MAILGUN_SMTP_SECURE);
-  const user = process.env.MAILTRAP_SMTP_USER || process.env.MAILGUN_SMTP_USER || '';
-  const pass = process.env.MAILTRAP_SMTP_PASS || process.env.MAILGUN_SMTP_PASS || '';
-  const from = process.env.MAILTRAP_FROM_EMAIL || process.env.MAILGUN_FROM_EMAIL || '';
+  const host = process.env.MAILTRAP_SMTP_HOST || '';
+  const port = Number(process.env.MAILTRAP_SMTP_PORT || 587);
+  const secure = toBool(process.env.MAILTRAP_SMTP_SECURE);
+  const user = process.env.MAILTRAP_SMTP_USER || '';
+  const pass = process.env.MAILTRAP_SMTP_PASS || '';
+  const from = process.env.MAILTRAP_FROM_EMAIL || '';
 
   return { host, port, secure, user, pass, from };
 };
@@ -48,15 +74,34 @@ const buildPhoneNumber = (user) => {
 
 const sendEmailViaSmtp = async ({ to, subject, text, html }) => {
   if (!isEmailSmtpConfigured()) {
+    debugNotification('warn', 'Email bypassed because SMTP config is missing', {
+      hasHost: Boolean(process.env.MAILTRAP_SMTP_HOST),
+      hasUser: Boolean(process.env.MAILTRAP_SMTP_USER),
+      hasPass: Boolean(process.env.MAILTRAP_SMTP_PASS),
+      hasFrom: Boolean(process.env.MAILTRAP_FROM_EMAIL),
+      to: maskEmail(to),
+      subject,
+    });
+
     return {
       sent: false,
       bypassed: true,
-      reason: 'SMTP config missing (MAILTRAP_/MAILGUN_)',
+      reason: 'SMTP config missing (MAILTRAP_)',
       channel: 'email',
     };
   }
 
   const smtpConfig = getSmtpConfig();
+
+  debugNotification('info', 'Sending email via SMTP', {
+    host: smtpConfig.host,
+    port: smtpConfig.port,
+    secure: smtpConfig.secure,
+    to: maskEmail(to),
+    subject,
+    hasHtml: Boolean(html),
+    hasText: Boolean(text),
+  });
 
   const transporter = nodemailer.createTransport({
     host: smtpConfig.host,
@@ -76,6 +121,11 @@ const sendEmailViaSmtp = async ({ to, subject, text, html }) => {
     html,
   });
 
+  debugNotification('info', 'Email sent successfully', {
+    to: maskEmail(to),
+    subject,
+  });
+
   return {
     sent: true,
     bypassed: false,
@@ -85,19 +135,36 @@ const sendEmailViaSmtp = async ({ to, subject, text, html }) => {
 
 const sendEmailNotification = async ({ to, subject, text, html }) => {
   if (isEmailSmtpConfigured()) {
+    debugNotification('info', 'Email provider selected: SMTP', {
+      to: maskEmail(to),
+      subject,
+    });
     return sendEmailViaSmtp({ to, subject, text, html });
   }
+
+  debugNotification('warn', 'Email notification bypassed because no SMTP provider is configured', {
+    to: maskEmail(to),
+    subject,
+  });
 
   return {
     sent: false,
     bypassed: true,
-    reason: 'SMTP config missing (MAILTRAP_/MAILGUN_)',
+    reason: 'SMTP config missing (MAILTRAP_)',
     channel: 'email',
   };
 };
 
 const sendSmsViaTwilio = async ({ to, body }) => {
   if (!isTwilioConfigured()) {
+    debugNotification('warn', 'SMS bypassed because Twilio config is missing', {
+      hasAccountSid: Boolean(process.env.TWILIO_ACCOUNT_SID),
+      hasAuthToken: Boolean(process.env.TWILIO_AUTH_TOKEN),
+      hasFromNumber: Boolean(process.env.TWILIO_FROM_NUMBER),
+      to: maskPhone(to),
+      hasBody: Boolean(body),
+    });
+
     return {
       sent: false,
       bypassed: true,
@@ -112,6 +179,11 @@ const sendSmsViaTwilio = async ({ to, body }) => {
 
   const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+
+  debugNotification('info', 'Sending SMS via Twilio', {
+    to: maskPhone(to),
+    hasBody: Boolean(body),
+  });
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -134,6 +206,10 @@ const sendSmsViaTwilio = async ({ to, body }) => {
     });
     throw new Error(`Twilio request failed: ${response.status} ${responseText}`);
   }
+
+  debugNotification('info', 'SMS sent successfully', {
+    to: maskPhone(to),
+  });
 
   return {
     sent: true,
@@ -158,6 +234,17 @@ const sendUserNotification = async ({
   const canSendEmail = Boolean(preferences?.isEmailNotificationOn);
   const canSendSms = Boolean(preferences?.isSmsNotificationOn);
 
+  debugNotification('info', 'Dispatching user notification', {
+    userId: user?._id ? String(user._id) : undefined,
+    emailEnabled: canSendEmail,
+    smsEnabled: canSendSms,
+    hasEmail: Boolean(user?.email),
+    hasPhone: Boolean(user?.mobile),
+    hasEmailSubject: Boolean(emailSubject),
+    hasEmailMessage: Boolean(emailMessage),
+    hasSmsMessage: Boolean(smsMessage),
+  });
+
   if (canSendEmail && user?.email && emailSubject && emailMessage) {
     output.email = await sendEmailNotification({
       to: user.email,
@@ -172,6 +259,13 @@ const sendUserNotification = async ({
       reason: 'Email disabled or missing email address/content',
       channel: 'email',
     };
+
+    debugNotification('warn', 'Email dispatch bypassed for user notification', {
+      emailEnabled: canSendEmail,
+      hasEmail: Boolean(user?.email),
+      hasEmailSubject: Boolean(emailSubject),
+      hasEmailMessage: Boolean(emailMessage),
+    });
   }
 
   const phoneNumber = buildPhoneNumber(user);
@@ -187,7 +281,15 @@ const sendUserNotification = async ({
       reason: 'SMS disabled or missing phone/content',
       channel: 'sms',
     };
+
+    debugNotification('warn', 'SMS dispatch bypassed for user notification', {
+      smsEnabled: canSendSms,
+      hasPhone: Boolean(phoneNumber),
+      hasSmsMessage: Boolean(smsMessage),
+    });
   }
+
+  debugNotification('info', 'User notification dispatch completed', output);
 
   return output;
 };
