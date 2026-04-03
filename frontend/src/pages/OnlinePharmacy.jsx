@@ -185,21 +185,24 @@ function OnlinePharmacy() {
     }
   }, [medicinename, medicines]);
 
+  // Auto-select first store as default so medicines load immediately
+  useEffect(() => {
+    if (stores.length > 0 && !selectedStore) {
+      setSelectedStore(stores[0]._id);
+      setFilteredStores(stores);
+    }
+  }, [stores]);
+
+  // Refine selection by pincode once userData is available
   useEffect(() => {
     if (userData?.pincode && stores.length > 0) {
       const userPincode = String(userData.pincode).trim();
-
       const matchedStores = stores.filter(
         (store) => String(store.pincode).trim() === userPincode
       );
-
-      setFilteredStores(matchedStores);
-
-      // Auto-select first matched store
       if (matchedStores.length > 0) {
+        setFilteredStores(matchedStores);
         setSelectedStore(matchedStores[0]._id);
-      } else {
-        setSelectedStore(null);
       }
     }
   }, [userData, stores]);
@@ -221,8 +224,8 @@ function OnlinePharmacy() {
   });
 
   const hasActiveFilter = Boolean(searchTerm.trim()) || selectedCondition !== 'all';
-  const displayedMedicines = hasActiveFilter ? filteredMedicines : [];
-  const shouldUseScroller = hasActiveFilter && filteredMedicines.length > 9;
+  const displayedMedicines = hasActiveFilter ? filteredMedicines : conditionFilteredMedicines;
+  const shouldUseScroller = displayedMedicines.length > 9;
 
   // Loading State
   if (storesLoading) {
@@ -463,38 +466,46 @@ function OnlinePharmacy() {
             </div>
           </div>
 
-          {/* Display Medicines Grid */}
-          {searchTerm.trim() && (
-            <div className="mt-10">
-              {displayedMedicines.length === 0 ? (
-                <div className="text-center py-16">
-                  <Pill className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500 text-lg font-semibold">No medicines found for "{searchTerm}".</p>
-                </div>
-              ) : (
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 mb-6">Search Results</h3>
-                  <div className={shouldUseScroller ? 'max-h-[68vh] overflow-y-auto pr-3' : ''}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {displayedMedicines.map((medicine) => (
-                        <MedicineCard
-                          key={medicine._id}
-                          id={medicine._id}
-                          name={medicine.name}
-                          manufacturer={medicine.manufacturer}
-                          dosage={medicine.dosage}
-                          price={medicine.price}
-                          stock={medicine.stock}
-                          type={medicine.type}
-                          requiresPrescription={medicine.requiresPrescription || false}
-                        />
-                      ))}
-                    </div>
+          {/* Display Medicines Grid — always visible */}
+          <div className="mt-10">
+            {loading ? (
+              <div className="text-center py-16">
+                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent" />
+                <p className="mt-4 text-slate-500 text-sm font-medium">Loading medicines...</p>
+              </div>
+            ) : displayedMedicines.length === 0 ? (
+              <div className="text-center py-16">
+                <Pill className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg font-semibold">
+                  {searchTerm.trim() ? `No medicines found for "${searchTerm}".` : 'No medicines available for this store yet.'}
+                </p>
+              </div>
+            ) : (
+              <div>
+                <h3 className="text-xl font-black text-slate-900 mb-6">
+                  {searchTerm.trim() ? 'Search Results' : selectedCondition !== 'all' ? healthConditions.find(c => c.key === selectedCondition)?.label : 'All Medicines'}
+                  <span className="ml-2 text-sm font-semibold text-slate-400">({displayedMedicines.length})</span>
+                </h3>
+                <div className={shouldUseScroller ? 'max-h-[68vh] overflow-y-auto pr-3' : ''}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {displayedMedicines.map((medicine) => (
+                      <MedicineCard
+                        key={medicine._id}
+                        id={medicine._id}
+                        name={medicine.name}
+                        manufacturer={medicine.manufacturer}
+                        dosage={medicine.dosage}
+                        price={medicine.price}
+                        stock={medicine.stock}
+                        type={medicine.type}
+                        requiresPrescription={medicine.requiresPrescription || false}
+                      />
+                    ))}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
 
         <CheckoutFooter />

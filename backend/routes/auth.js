@@ -118,7 +118,7 @@ router.get("/prescriptions/store", verifyToken(["Store"]), getStorePrescriptionR
 router.patch("/prescriptions/:id/review", verifyToken(["Store"]), reviewPrescriptionRequest);
 router.post("/updateorderedmedicines", updateorderedmedicines);
 router.post("/updatecartquantity", updatecartquantity);
-router.post("/addmedicine", addmedicinetodb);
+router.post("/addmedicine", verifyToken(["Store"]), addmedicinetodb);
 router.post("/decreaseupdatecartquantity", decreaseupdatecartquantity);
 router.post("/deletemedicine", deletemedicine);
 router.get("/allmedicines", fetchpharmacymedicines);

@@ -1112,6 +1112,9 @@ const addmedicinetodb = async (req, res) => {
             return res.status(400).json({ error: 'All fields are required' });
         }
 
+        // Attach storeId from authenticated store owner token if available
+        const storeId = req.user?._id || null;
+
         // Create a new medicine document
         const newMedicine = new Pharmacy({
             name,
@@ -1120,6 +1123,7 @@ const addmedicinetodb = async (req, res) => {
             type,
             price,
             stock,
+            ...(storeId && { storeId }),
         });
 
         // Save to database
@@ -1836,6 +1840,17 @@ const updateOrderTrackingStatus = async (req, res) => {
         const allowedStatuses = validStatuses[deliveryType || order.deliveryType] || [];
         if (!allowedStatuses.includes(trackingStatus)) {
             return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid tracking status for this delivery type' });
+        }
+
+        const currentStatus = order.trackingStatus || 'Order Placed';
+        const currentIndex = allowedStatuses.indexOf(currentStatus);
+        const nextIndex = allowedStatuses.indexOf(trackingStatus);
+
+        // Reliability rule: once progressed, status cannot move backward.
+        if (currentIndex !== -1 && nextIndex < currentIndex) {
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                message: 'Tracking status cannot be moved backward',
+            });
         }
 
         order.trackingStatus = trackingStatus;
@@ -2661,7 +2676,13 @@ const getMedicinesByStore = async (req, res) => {
       return res.status(400).json({ success: false, message: "Store ID is required" });
     }
 
-    const medicines = await Pharmacy.find({ storeId });
+    // Try store-scoped medicines first
+    let medicines = await Pharmacy.find({ storeId });
+
+    // Fallback: existing medicines may not have storeId yet — return all
+    if (medicines.length === 0) {
+      medicines = await Pharmacy.find({});
+    }
 
     res.status(200).json({
       success: true,

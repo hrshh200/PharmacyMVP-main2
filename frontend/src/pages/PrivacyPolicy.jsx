@@ -89,19 +89,21 @@ export default function PrivacyPolicy() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pt-[var(--app-navbar-offset,88px)]">
       {/* Hero Banner */}
-      <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-emerald-500 text-white py-20 px-6">
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-emerald-500 text-white py-10 px-6 rounded-b-[2rem] shadow-lg shadow-blue-900/20">
+        <div className="pointer-events-none absolute -top-10 -right-10 h-40 w-40 rounded-full bg-white/10 blur-2xl"></div>
+        <div className="pointer-events-none absolute -bottom-10 -left-10 h-40 w-40 rounded-full bg-emerald-300/10 blur-2xl"></div>
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/20 backdrop-blur mb-6">
-            <Shield className="w-10 h-10 text-white" />
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur mb-3">
+            <Shield className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 tracking-tight">Privacy Policy</h1>
-          <p className="text-lg md:text-xl text-white/80 max-w-2xl mx-auto leading-relaxed">
+          <h1 className="text-2xl md:text-3xl font-bold mb-2 tracking-tight">Privacy Policy</h1>
+          <p className="text-sm md:text-base text-white/80 max-w-2xl mx-auto leading-relaxed">
             Your privacy matters to us. This policy explains how PharmacyMVP collects, uses, and protects your personal information.
           </p>
-          <div className="mt-6 inline-flex items-center gap-2 bg-white/20 backdrop-blur rounded-full px-5 py-2 text-sm font-medium">
-            <RefreshCw className="w-4 h-4" />
+          <div className="mt-4 inline-flex items-center gap-2 bg-white/20 backdrop-blur rounded-full px-4 py-1.5 text-xs font-medium">
+            <RefreshCw className="w-3 h-3" />
             Last updated: March 28, 2026
           </div>
         </div>

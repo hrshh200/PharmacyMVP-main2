@@ -7,7 +7,10 @@ export default function EmergencyCare() {
   const location = useLocation()
 
   useEffect(() => {
-    if (!location.hash) return
+    if (!location.hash) {
+      window.scrollTo({ top: 0, behavior: 'auto' })
+      return
+    }
 
     const id = location.hash.replace('#', '')
     const section = document.getElementById(id)

@@ -29,7 +29,10 @@ export function MedicineForm() {
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${baseURL}/addmedicine`, formData);
+      const token = localStorage.getItem('medVisionToken');
+      const response = await axios.post(`${baseURL}/addmedicine`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       console.log(response);
 
       if (response.status === 200) {

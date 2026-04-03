@@ -314,7 +314,9 @@ export function PaymentPage() {
                 </div>
                 <div className="flex items-center justify-between text-sm text-gray-600">
                   <span>Method</span>
-                  <span className="font-semibold text-gray-900 capitalize">{selectedMethod}</span>
+                  <span className="font-semibold text-gray-900">
+                    {paymentMethods.find(m => m.id === selectedMethod)?.title || selectedMethod}
+                  </span>
                 </div>
                 <div className="border-t pt-3 flex items-center justify-between text-lg font-bold text-gray-900">
                   <span>Total Payable</span>

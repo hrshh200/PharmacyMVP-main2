@@ -1,10 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from "react-router-dom";
 import { ArrowRight, Mail, Heart, ShieldCheck, Pill, Activity } from "lucide-react";
 
 function Footer() {
     const [email, setEmail] = useState("");
     const [subscribed, setSubscribed] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(
+        () => !!localStorage.getItem("medVisionToken")
+    );
+
+    useEffect(() => {
+        const check = () => setIsLoggedIn(!!localStorage.getItem("medVisionToken"));
+        check();
+        window.addEventListener("storage", check);
+        return () => window.removeEventListener("storage", check);
+    }, []);
 
     function emailHandler(e) {
         setEmail(e.target.value);
@@ -61,7 +71,7 @@ function Footer() {
                                 <li key={label}>
                                     <Link
                                         to={to}
-                                        onClick={to.includes("#") ? undefined : scrollSmooth}
+                                        onClick={label === "Emergency Care" ? undefined : (to.includes("#") ? undefined : scrollSmooth)}
                                         className="flex items-center gap-2.5 text-sm text-white/60 hover:text-teal-200 transition-all duration-200 group"
                                     >
                                         <span className="text-white/30 group-hover:text-teal-300 transition-colors duration-200">{icon}</span>
@@ -99,10 +109,10 @@ function Footer() {
                         <h3 className="text-sm font-semibold uppercase tracking-widest text-teal-300 mb-4">Account</h3>
                         <ul className="flex flex-col gap-3">
                             {[
-                                { label: "Login", to: "/login" },
-                                { label: "Create Account", to: "/signup" },
-                                { label: "Patient Dashboard", to: "" },
-                            ].map(({ label, to }) => (
+                                !isLoggedIn && { label: "Login", to: "/login" },
+                                !isLoggedIn && { label: "Create Account", to: "/signup" },
+                                { label: "Patient Dashboard", to: "/dashboard" },
+                            ].filter(Boolean).map(({ label, to }) => (
                                 <li key={label}>
                                     <Link
                                         to={to}

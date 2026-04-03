@@ -149,19 +149,21 @@ export default function TermsAndConditions() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pt-[var(--app-navbar-offset,88px)]">
       {/* Hero Banner */}
-      <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-blue-700 text-white py-20 px-6">
+      <div className="relative overflow-hidden bg-gradient-to-br from-slate-800 via-slate-700 to-blue-700 text-white py-10 px-6 rounded-b-[2rem] shadow-lg">
+        <div className="pointer-events-none absolute -top-10 -right-10 h-40 w-40 rounded-full bg-white/10 blur-2xl"></div>
+        <div className="pointer-events-none absolute -bottom-10 -left-10 h-40 w-40 rounded-full bg-blue-400/10 blur-2xl"></div>
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/20 backdrop-blur mb-6">
-            <FileText className="w-10 h-10 text-white" />
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-white/20 backdrop-blur mb-3">
+            <FileText className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-extrabold mb-4 tracking-tight">Terms & Conditions</h1>
-          <p className="text-lg md:text-xl text-white/80 max-w-2xl mx-auto leading-relaxed">
-            Please read these terms carefully before using PharmacyMVP's services. They govern your use of our platform and outline both your rights and responsibilities.
+          <h1 className="text-2xl md:text-3xl font-bold mb-2 tracking-tight">Terms &amp; Conditions</h1>
+          <p className="text-sm md:text-base text-white/80 max-w-2xl mx-auto leading-relaxed">
+            Please read these terms carefully before using PharmacyMVP&apos;s services. They govern your use of our platform and outline both your rights and responsibilities.
           </p>
-          <div className="mt-6 inline-flex items-center gap-2 bg-white/20 backdrop-blur rounded-full px-5 py-2 text-sm font-medium">
-            <RefreshCw className="w-4 h-4" />
+          <div className="mt-4 inline-flex items-center gap-2 bg-white/20 backdrop-blur rounded-full px-4 py-1.5 text-xs font-medium">
+            <RefreshCw className="w-3 h-3" />
             Last updated: March 28, 2026
           </div>
         </div>

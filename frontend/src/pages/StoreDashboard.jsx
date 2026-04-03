@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 
 const StoreDashboard = () => {
-  const navigate = useNavigate();
   const [selectedSection, setSelectedSection] = useState('staff');
   const [staffMembers, setStaffMembers] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -54,6 +53,7 @@ const StoreDashboard = () => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [updatingTrackingStatus, setUpdatingTrackingStatus] = useState(false);
+  const orderDetailsRef = useRef(null);
   const selectedOrder = orders.find((item) => item.id === selectedOrderId);
   const parseCurrencyAmount = (value) => Number(String(value).replace(/[^\d.]/g, '')) || 0;
   const formatUSD = (value) =>
@@ -69,6 +69,35 @@ const StoreDashboard = () => {
     if (s.includes('out for') || s.includes('out for delivery')) return { dot: 'bg-blue-500', pill: 'bg-blue-50 text-blue-700 border border-blue-200' };
     if (s.includes('packed')) return { dot: 'bg-violet-500', pill: 'bg-violet-50 text-violet-700 border border-violet-200' };
     return { dot: 'bg-amber-400', pill: 'bg-amber-50 text-amber-700 border border-amber-200' };
+  };
+  const getPaymentMethodMeta = (paymentMethod) => {
+    const key = String(paymentMethod || '').toLowerCase().replace(/[\s_-]/g, '');
+    const paymentMethodMeta = {
+      cod: { label: 'Cash on Delivery', className: 'bg-amber-50 border-amber-200 text-amber-700' },
+      cashondelivery: { label: 'Cash on Delivery', className: 'bg-amber-50 border-amber-200 text-amber-700' },
+      card: { label: 'Card', className: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+      creditcard: { label: 'Credit Card', className: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+      debitcard: { label: 'Debit Card', className: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
+      upi: { label: 'UPI', className: 'bg-violet-50 border-violet-200 text-violet-700' },
+      netbanking: { label: 'Net Banking', className: 'bg-blue-50 border-blue-200 text-blue-700' },
+      wallet: { label: 'Wallet', className: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700' },
+      pickup: { label: 'Pay at Pickup', className: 'bg-sky-50 border-sky-200 text-sky-700' },
+    };
+
+    if (paymentMethodMeta[key]) {
+      return paymentMethodMeta[key];
+    }
+
+    const readableLabel = String(paymentMethod || 'Unknown')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+
+    return {
+      label: readableLabel,
+      className: 'bg-slate-50 border-slate-200 text-slate-700',
+    };
   };
   const reportOrdersTotal = orders.length;
   const reportCompletedOrders = orders.filter((order) => isCompletedOrder(order.status)).length;
@@ -123,6 +152,16 @@ const StoreDashboard = () => {
   };
 
   const revenueSummary = calculateRevenueSummary();
+
+  const handleSelectOrder = (orderId) => {
+    setSelectedOrderId(orderId);
+
+    if (window.innerWidth < 1024) {
+      requestAnimationFrame(() => {
+        orderDetailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  };
 
   const [prescriptions, setPrescriptions] = useState([]);
   const [selectedPrescriptionId, setSelectedPrescriptionId] = useState(null);
@@ -209,6 +248,12 @@ const StoreDashboard = () => {
     } else {
       return ['Order Placed', 'Packed', 'Out for Delivery', 'Delivered'];
     }
+  };
+
+  const getCurrentTrackingStatusIndex = () => {
+    const statuses = getAvailableTrackingStatuses();
+    const current = selectedOrder?.trackingStatus || 'Order Placed';
+    return statuses.indexOf(current);
   };
 
   const loadStorePrescriptions = async () => {
@@ -372,20 +417,6 @@ const StoreDashboard = () => {
       email: staff.email,
       address: staff.address,
       role: staff.role,
-    });
-  };
-
-  const cancelStaffEdit = () => {
-    setEditingStaffId(null);
-    setShowStaffForm(false);
-    setNewStaff({
-      firstName: '',
-      middleName: '',
-      lastName: '',
-      contact: '',
-      email: '',
-      address: '',
-      role: 'Pharmacist',
     });
   };
 
@@ -1115,7 +1146,7 @@ const StoreDashboard = () => {
                         <button
                           key={order.id}
                           type="button"
-                          onClick={() => setSelectedOrderId(order.id)}
+                          onClick={() => handleSelectOrder(order.id)}
                           className={`w-full rounded-3xl border p-4 text-left transition ${active ? 'border-sky-500 bg-sky-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -1141,7 +1172,7 @@ const StoreDashboard = () => {
                       );
                     })}
                   </div>
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
+                  <div ref={orderDetailsRef} className="rounded-3xl border border-slate-200 bg-slate-50 p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
                     {ordersLoading ? (
                       <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
                         Loading order details...
@@ -1163,7 +1194,14 @@ const StoreDashboard = () => {
                           </div>
                           <div className="rounded-3xl bg-white p-4">
                             <p className="text-sm font-medium text-slate-500">Payment method</p>
-                            <p className="mt-3 text-sm text-slate-700">{selectedOrder.payment}</p>
+                            {(() => {
+                              const paymentMeta = getPaymentMethodMeta(selectedOrder.payment);
+                              return (
+                                <span className={`mt-3 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${paymentMeta.className}`}>
+                                  {paymentMeta.label}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                         <div className="mt-6 rounded-3xl bg-white p-4">
@@ -1188,18 +1226,30 @@ const StoreDashboard = () => {
                           <p className="text-sm font-medium text-slate-500">Update order tracking</p>
                           <div className="mt-4 space-y-2">
                             {getAvailableTrackingStatuses().map((status) => (
+                              (() => {
+                                const statuses = getAvailableTrackingStatuses();
+                                const currentIndex = getCurrentTrackingStatusIndex();
+                                const statusIndex = statuses.indexOf(status);
+                                const isCurrent = status === (selectedOrder.trackingStatus || 'Order Placed');
+                                const isBackward = currentIndex !== -1 && statusIndex < currentIndex;
+                                const isDisabled = updatingTrackingStatus || isCurrent || isBackward;
+                                return (
                               <button
                                 key={status}
                                 onClick={() => handleUpdateTrackingStatus(status)}
-                                disabled={updatingTrackingStatus || status === (selectedOrder.trackingStatus || 'Order Placed')}
+                                disabled={isDisabled}
                                 className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
-                                  status === (selectedOrder.trackingStatus || 'Order Placed')
+                                  isCurrent
                                     ? 'border-green-500 bg-green-50 text-green-700 font-semibold cursor-not-allowed'
+                                    : isBackward
+                                    ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
                                     : 'border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-slate-700 disabled:opacity-50'
                                 }`}
                               >
-                                {status === (selectedOrder.trackingStatus || 'Order Placed') ? '✓ ' : ''}{status}
+                                {isCurrent ? '✓ ' : ''}{status}
                               </button>
+                                );
+                              })()
                             ))}
                           </div>
                         </div>
@@ -1471,7 +1521,7 @@ const StoreDashboard = () => {
                     <p className="mt-3 text-3xl font-semibold text-slate-900">{formatUSD(revenueSummary.weekly)}</p>
                   </div>
                   <div className="rounded-3xl bg-slate-50 p-5">
-                    <p className="text-sm text-slate-500">Today's Revenue</p>
+                    <p className="text-sm text-slate-500">Today&apos;s Revenue</p>
                     <p className="mt-3 text-3xl font-semibold text-slate-900">{formatUSD(revenueSummary.revenueToday)}</p>
                   </div>
                   <div className="rounded-3xl bg-slate-50 p-5">
