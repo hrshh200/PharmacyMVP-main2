@@ -22,6 +22,8 @@ import {
 
 const StoreDashboard = () => {
   const [selectedSection, setSelectedSection] = useState('staff');
+  const [storeName, setStoreName] = useState('');
+  const [storeDataLoading, setStoreDataLoading] = useState(false);
   const [staffMembers, setStaffMembers] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [newStaff, setNewStaff] = useState({
@@ -194,6 +196,26 @@ const StoreDashboard = () => {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return 'N/A';
     return parsed.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+  };
+
+  const loadStoreData = async () => {
+    const token = localStorage.getItem('medVisionToken');
+    if (!token) return;
+
+    try {
+      setStoreDataLoading(true);
+      const response = await axios.get(`${baseURL}/fetchdata`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const userData = response.data?.userData;
+      if (userData?.storeName) {
+        setStoreName(userData.storeName);
+      }
+    } catch (error) {
+      console.error('Failed to load store data:', error.message);
+    } finally {
+      setStoreDataLoading(false);
+    }
   };
 
   const loadStoreOrders = async () => {
@@ -622,6 +644,10 @@ const StoreDashboard = () => {
   };
 
   useEffect(() => {
+    loadStoreData();
+  }, []);
+
+  useEffect(() => {
     if (selectedSection === 'staff') {
       loadStoreStaffMembers();
     }
@@ -737,7 +763,9 @@ const StoreDashboard = () => {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Store Operations Hub</p>
-              <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Pharmacy Store Dashboard</h1>
+              <h1 className="mt-3 text-3xl font-bold sm:text-4xl">
+                {storeDataLoading ? 'Loading...' : storeName || 'Pharmacy Store Dashboard'}
+              </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-200 sm:text-base">
                 Manage staff, inventory, orders, prescriptions, and customer queries from one central control panel.
               </p>
