@@ -2498,7 +2498,7 @@ const Dashboard = () => {
                         )}
 
                         {/* My Orders Panel */}
-                        {showMyOrders && (
+                       {showMyOrders && (
                             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
                                 <div className="bg-gradient-to-br from-blue-800 via-blue-700 to-cyan-600 text-white p-6 md:p-7 relative overflow-hidden">
                                     <div className="absolute -top-16 -right-10 w-40 h-40 rounded-full bg-white/10 blur-2xl"></div>
@@ -2581,12 +2581,6 @@ const Dashboard = () => {
                                                             Track Order
                                                         </button>
                                                         <button
-                                                            className="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-4 rounded-xl shadow transition-colors"
-                                                            onClick={() => openWhatsAppOrderChat(order)}
-                                                        >
-                                                            WhatsApp Track
-                                                        </button>
-                                                        <button
                                                             className="bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 px-4 rounded-xl shadow transition-colors inline-flex items-center gap-1.5"
                                                             onClick={() => toggleDashboardOrderItems(order.id)}
                                                         >
@@ -2606,20 +2600,46 @@ const Dashboard = () => {
                                                 })()}
 
                                                 {expandedDashboardOrder === order.id && (
-                                                    <div className="mt-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                                                        <h3 className="font-semibold text-gray-800 mb-2">Order Items</h3>
-                                                        <ul className="space-y-2 text-sm text-gray-700">
+                                                    <div className="mt-4 bg-gradient-to-br from-gray-50 to-gray-100 p-4 rounded-xl border border-gray-200">
+                                                        <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                                                            <Package className="w-4 h-4 text-blue-600" />
+                                                            Order Items
+                                                        </h3>
+                                                        <div className="space-y-2 text-sm text-gray-700">
                                                             {order.items?.length > 0 ? (
                                                                 order.items.map((item, idx) => (
-                                                                    <li key={idx} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-2">
-                                                                                <span>{item.name || 'Unnamed Item'}</span>
-                                                                                <span className="text-gray-600">Qty {item.quantity || 1} • {formatUsd(item.price || 0)}</span>
-                                                                    </li>
+                                                                    <div key={idx} className="flex items-center gap-3 bg-white border border-gray-200 rounded-lg px-3 py-3 hover:shadow-md hover:border-blue-200 transition-all duration-200">
+                                                                        {/* Medicine Image */}
+                                                                        <div className="flex-shrink-0">
+                                                                            <img
+                                                                                src="/medicine.png"
+                                                                                alt={item.name || 'Medicine'}
+                                                                                className="w-12 h-12 object-contain rounded-lg bg-blue-50 p-2"
+                                                                            />
+                                                                        </div>
+
+                                                                        {/* Item Details */}
+                                                                        <div className="flex-grow min-w-0">
+                                                                            <p className="font-medium text-gray-800 truncate">{item.name || 'Unnamed Item'}</p>
+                                                                            <p className="text-xs text-gray-500">Medicine</p>
+                                                                        </div>
+
+                                                                        {/* Quantity and Price */}
+                                                                        <div className="flex items-center gap-3 flex-shrink-0">
+                                                                            <div className="text-right">
+                                                                                <p className="text-xs text-gray-500">Qty: {item.quantity || 1}</p>
+                                                                                <p className="font-semibold text-blue-600">{formatUsd(item.price || 0)}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
                                                                 ))
                                                             ) : (
-                                                                <li className="text-gray-500">No items available for this order.</li>
+                                                                <div className="text-center py-6 text-gray-500">
+                                                                    <Package className="w-8 h-8 text-gray-300 mx-auto mb-2 opacity-50" />
+                                                                    <p>No items available for this order.</p>
+                                                                </div>
                                                             )}
-                                                        </ul>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -2640,7 +2660,6 @@ const Dashboard = () => {
                                 )}
                             </div>
                         )}
-
                         {/* My Vaccinations Panel */}
                         {showMyVaccinations && (
                             <div className="bg-white rounded-2xl shadow-lg p-6">

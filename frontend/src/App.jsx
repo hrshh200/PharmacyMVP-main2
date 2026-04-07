@@ -32,6 +32,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsAndConditions from './pages/TermsAndConditions';
 import ContactUs from './pages/ContactUs';
 import NotFound from './pages/NotFound';
+import CartPage from './pages/Cart';
 
 function App() {
 
@@ -102,6 +103,14 @@ function App() {
           <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
           <Route path="/contact-us" element={<ContactUs />} />
           <Route path="*" element={<NotFound />} />
+          <Route
+            path="cart"
+            element={
+              <ProtectedRoute allowedRoles={["User"]}>
+                <CartPage />
+              </ProtectedRoute>
+            }
+          />
         </Route>
       </Routes>
     </>

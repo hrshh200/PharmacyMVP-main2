@@ -26,12 +26,6 @@ const paymentMethods = [
     icon: <Truck className="w-6 h-6" />,
     title: 'Cash on Delivery',
     description: 'Pay when you receive'
-  },
-  {
-    id: 'metamask',
-    icon: <Wallet className="w-6 h-6" />,
-    title: 'Metamask Wallet',
-    description: 'Pay with cryptocurrency'
   }
 ];
 

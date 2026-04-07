@@ -260,17 +260,6 @@ function OnlinePharmacy() {
     return keywords.some((keyword) => searchableText.includes(keyword));
   };
 
-  const filterStoresByPincode = (pincode) => {
-    if (!pincode.trim()) {
-      setFilteredStores(stores);
-    } else {
-      const filtered = stores.filter(store =>
-        String(store.pincode).includes(pincode)
-      );
-      setFilteredStores(filtered);
-    }
-  };
-
   // Effects
   useEffect(() => {
     fetchDataFromApi();
@@ -334,19 +323,6 @@ function OnlinePharmacy() {
     }
   }, [stores]);
 
-  // Refine selection by pincode once userData is available
-  useEffect(() => {
-    if (userData?.pincode && stores.length > 0) {
-      const userPincode = String(userData.pincode).trim();
-      const matchedStores = stores.filter(
-        (store) => String(store.pincode).trim() === userPincode
-      );
-      if (matchedStores.length > 0) {
-        setFilteredStores(matchedStores);
-        setSelectedStore(matchedStores[0]._id);
-      }
-    }
-  }, [userData, stores]);
 
   // Load user prescriptions on component mount
   useEffect(() => {
@@ -553,21 +529,11 @@ function OnlinePharmacy() {
                 {/* Dropdown Menu */}
                 {isStoreDropdownOpen && (
                   <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-2xl shadow-2xl z-[200] max-h-96 overflow-y-auto border border-gray-200">
-                    {/* Search/Filter Input */}
-                    <div className="sticky top-0 bg-white border-b border-gray-200 p-4 rounded-t-2xl">
-                      <input
-                        type="text"
-                        placeholder="Search by pincode..."
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition"
-                        onChange={(e) => filterStoresByPincode(e.target.value)}
-                      />
-                    </div>
-
                     {/* Store List */}
                     <div className="py-2">
                       {filteredStores.length === 0 ? (
                         <div className="px-6 py-8 text-center">
-                          <p className="text-gray-500 text-sm">No stores found for this pincode</p>
+                          <p className="text-gray-500 text-sm">No stores available</p>
                         </div>
                       ) : (
                         filteredStores.map((store) => (

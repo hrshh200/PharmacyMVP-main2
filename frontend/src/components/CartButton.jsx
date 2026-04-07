@@ -109,9 +109,9 @@ const CartButton = ({ openOnMount = false, appliedCampaign = null, selectedStore
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
-  const viewCartModal = () => { 
-    setIsModalOpen(true);
-  };
+  const viewCartModal = () => {
+  navigate('/cart');
+};
 
   const closeCartModal = () => {
     setIsModalOpen(false);

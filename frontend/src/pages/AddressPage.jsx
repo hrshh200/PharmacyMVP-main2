@@ -262,7 +262,7 @@ export function AddressPage() {
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
-                  onClick={() => navigate('/onlinepharmacy', { state: { openCart: true } })}
+                  onClick={() => navigate('/cart')}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-blue-200 text-blue-700 hover:bg-blue-50 transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
