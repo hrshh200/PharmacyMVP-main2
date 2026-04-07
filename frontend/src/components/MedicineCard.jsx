@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { Pill, ShoppingCart, FileText, CheckCircle, Upload, X, AlertCircle, Clock, BadgeCheck, Stethoscope, CalendarDays, UserRound, Zap, Heart } from 'lucide-react';
-import CartButton from './CartButton';
 import axios from 'axios';
 import { baseURL } from '../main';
 
@@ -364,9 +363,6 @@ const MedicineCard = ({
           </button>
         </div>
 
-        {userData?._id && addcart && (
-          <CartButton id={id} name={name} price={price} />
-        )}
       </div>
 
       {/* Prescription Upload Modal */}
