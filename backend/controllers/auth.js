@@ -1065,7 +1065,7 @@ const fetchData = async (req, res) => {
             let loggedInStaff = null;
             if (decoded.staffId) {
                 loggedInStaff = await StoreStaff.findById(decoded.staffId)
-                    .select('firstName lastName email contact role status')
+                    .select('firstName middleName lastName email contact address role status')
                     .lean();
             }
 

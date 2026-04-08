@@ -61,6 +61,31 @@ const StoreDashboard = () => {
   });
   const [storeProfileSaving, setStoreProfileSaving] = useState(false);
   const [storeDataLoading, setStoreDataLoading] = useState(false);
+  const [loggedInAccount, setLoggedInAccount] = useState({
+    staffId: '',
+    name: '',
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    email: '',
+    contact: '',
+    address: '',
+    role: '',
+    status: '',
+  });
+  const [isEditingStaffProfile, setIsEditingStaffProfile] = useState(false);
+  const [staffProfileDraft, setStaffProfileDraft] = useState({
+    staffId: '',
+    firstName: '',
+    middleName: '',
+    lastName: '',
+    email: '',
+    contact: '',
+    address: '',
+    role: 'Pharmacist',
+    loginPassword: '',
+  });
+  const [staffProfileSaving, setStaffProfileSaving] = useState(false);
   const [staffMembers, setStaffMembers] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [newStaff, setNewStaff] = useState({
@@ -953,6 +978,46 @@ const StoreDashboard = () => {
       if (userData?.dashboardAccessRole) {
         setDashboardAccessRole(userData.dashboardAccessRole);
       }
+
+      const staffAccount = userData?.loggedInStaff || null;
+      const accountProfile = staffAccount
+        ? {
+          staffId: staffAccount._id || '',
+          name: [staffAccount.firstName, staffAccount.lastName].filter(Boolean).join(' ').trim(),
+          firstName: staffAccount.firstName || '',
+          middleName: staffAccount.middleName || '',
+          lastName: staffAccount.lastName || '',
+          email: staffAccount.email || '',
+          contact: staffAccount.contact || '',
+          address: staffAccount.address || '',
+          role: staffAccount.role || userData?.dashboardAccessRole || '',
+          status: staffAccount.status || 'Active',
+        }
+        : {
+          staffId: '',
+          name: userData?.ownerName || '',
+          firstName: '',
+          middleName: '',
+          lastName: '',
+          email: userData?.email || '',
+          contact: `${userData?.countryCode || '+91'} ${userData?.mobile || ''}`.trim(),
+          address: userData?.address || '',
+          role: userData?.dashboardAccessRole || 'Store Admin',
+          status: 'Active',
+        };
+      setLoggedInAccount(accountProfile);
+      setStaffProfileDraft({
+        staffId: accountProfile.staffId || '',
+        firstName: accountProfile.firstName || '',
+        middleName: accountProfile.middleName || '',
+        lastName: accountProfile.lastName || '',
+        email: accountProfile.email || '',
+        contact: accountProfile.contact || '',
+        address: accountProfile.address || '',
+        role: accountProfile.role || 'Pharmacist',
+        loginPassword: '',
+      });
+
       const profileData = {
         storeName: userData?.storeName || '',
         ownerName: userData?.ownerName || '',
@@ -1031,6 +1096,82 @@ const StoreDashboard = () => {
       toast.error(error.response?.data?.message || 'Failed to update store details');
     } finally {
       setStoreProfileSaving(false);
+    }
+  };
+
+  const handleStaffProfileDraftChange = (event) => {
+    const { name, value } = event.target;
+    setStaffProfileDraft((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const saveStaffProfile = async (event) => {
+    event.preventDefault();
+
+    const token = localStorage.getItem('medVisionToken');
+    if (!token) return;
+
+    if (!staffProfileDraft.staffId) {
+      toast.error('Logged-in staff account not found.');
+      return;
+    }
+
+    if (!staffProfileDraft.firstName || !staffProfileDraft.lastName || !staffProfileDraft.email || !staffProfileDraft.contact) {
+      toast.error('First name, last name, email, and contact are required.');
+      return;
+    }
+
+    try {
+      setStaffProfileSaving(true);
+      const response = await axios.put(
+        `${baseURL}/store-staff/${staffProfileDraft.staffId}`,
+        {
+          firstName: staffProfileDraft.firstName,
+          middleName: staffProfileDraft.middleName,
+          lastName: staffProfileDraft.lastName,
+          role: staffProfileDraft.role,
+          email: staffProfileDraft.email,
+          contact: staffProfileDraft.contact,
+          address: staffProfileDraft.address,
+          loginPassword: staffProfileDraft.loginPassword,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      const updatedStaff = response.data?.staffMember || {};
+      const nextAccount = {
+        staffId: updatedStaff._id || staffProfileDraft.staffId,
+        name: [updatedStaff.firstName || staffProfileDraft.firstName, updatedStaff.lastName || staffProfileDraft.lastName].filter(Boolean).join(' ').trim(),
+        firstName: updatedStaff.firstName || staffProfileDraft.firstName,
+        middleName: updatedStaff.middleName || staffProfileDraft.middleName,
+        lastName: updatedStaff.lastName || staffProfileDraft.lastName,
+        email: updatedStaff.email || staffProfileDraft.email,
+        contact: updatedStaff.contact || staffProfileDraft.contact,
+        address: updatedStaff.address || staffProfileDraft.address,
+        role: updatedStaff.role || staffProfileDraft.role,
+        status: updatedStaff.status || loggedInAccount.status || 'Active',
+      };
+
+      setLoggedInAccount(nextAccount);
+      setStaffProfileDraft((prev) => ({
+        ...prev,
+        staffId: nextAccount.staffId,
+        firstName: nextAccount.firstName,
+        middleName: nextAccount.middleName,
+        lastName: nextAccount.lastName,
+        email: nextAccount.email,
+        contact: nextAccount.contact,
+        address: nextAccount.address,
+        role: nextAccount.role,
+        loginPassword: '',
+      }));
+      setIsEditingStaffProfile(false);
+      toast.success('Staff profile updated successfully');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update staff profile');
+    } finally {
+      setStaffProfileSaving(false);
     }
   };
 
@@ -1193,7 +1334,24 @@ const StoreDashboard = () => {
       const response = await axios.get(`${baseURL}/store-staff`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setStaffMembers(response.data.staffMembers || []);
+      const rows = response.data.staffMembers || [];
+      setStaffMembers(rows);
+
+      if (loggedInAccount.staffId) {
+        const selfStaff = rows.find((row) => String(row._id) === String(loggedInAccount.staffId));
+        if (selfStaff) {
+          setLoggedInAccount((prev) => ({
+            ...prev,
+            middleName: selfStaff.middleName || prev.middleName || '',
+            address: selfStaff.address || prev.address || '',
+          }));
+          setStaffProfileDraft((prev) => ({
+            ...prev,
+            middleName: selfStaff.middleName || prev.middleName || '',
+            address: selfStaff.address || prev.address || '',
+          }));
+        }
+      }
     } catch (error) {
       console.error('Failed to load staff members:', error.message);
       setStaffMembers([]);
@@ -1839,6 +1997,9 @@ const StoreDashboard = () => {
       loadStorePrescriptions();
       loadStoreStaffMembers();
     }
+    if (selectedSection === 'myProfile') {
+      loadStoreStaffMembers();
+    }
     if (selectedSection === 'queries' && allowedSectionKeys.includes('queries')) {
       loadStoreQueries();
     }
@@ -2090,6 +2251,7 @@ const StoreDashboard = () => {
     staffCompliancePermissionPrefixes.some((prefix) => String(permission || '').startsWith(prefix))
   );
   const canManageStaff = allowedSectionKeys.includes('staff');
+  const isStaffSelfProfile = dashboardAccessRole !== 'Store Admin' && Boolean(loggedInAccount.staffId);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -2174,7 +2336,184 @@ const StoreDashboard = () => {
                   </div>
                 </div>
 
-                {!isEditingStoreProfile ? (
+                {!isStaffSelfProfile && (
+                  <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-2xl bg-violet-50 p-4">
+                      <p className="text-xs text-violet-700">Logged-in Name</p>
+                      <p className="text-sm font-semibold text-violet-900">{loggedInAccount.name || 'N/A'}</p>
+                    </div>
+                    <div className="rounded-2xl bg-blue-50 p-4">
+                      <p className="text-xs text-blue-600">Logged-in Email</p>
+                      <p className="text-sm font-semibold text-blue-900 break-all">{loggedInAccount.email || 'N/A'}</p>
+                    </div>
+                    <div className="rounded-2xl bg-amber-50 p-4">
+                      <p className="text-xs text-amber-700">Logged-in Contact</p>
+                      <p className="text-sm font-semibold text-amber-900">{loggedInAccount.contact || 'N/A'}</p>
+                    </div>
+                    <div className="rounded-2xl bg-emerald-50 p-4">
+                      <p className="text-xs text-emerald-700">Logged-in Status</p>
+                      <p className="text-sm font-semibold text-emerald-900">{loggedInAccount.role || dashboardAccessRole} • {loggedInAccount.status || 'N/A'}</p>
+                    </div>
+                  </div>
+                )}
+
+                {isStaffSelfProfile ? (
+                  !isEditingStaffProfile ? (
+                    <div className="space-y-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl bg-emerald-50 p-4">
+                          <p className="text-xs text-emerald-600">First Name</p>
+                          <p className="text-lg font-semibold text-emerald-900">{loggedInAccount.firstName || 'N/A'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-sky-50 p-4">
+                          <p className="text-xs text-sky-600">Middle Name</p>
+                          <p className="text-lg font-semibold text-sky-900">{loggedInAccount.middleName || 'N/A'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-blue-50 p-4">
+                          <p className="text-xs text-blue-600">Last Name</p>
+                          <p className="text-lg font-semibold text-blue-900">{loggedInAccount.lastName || 'N/A'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-amber-50 p-4">
+                          <p className="text-xs text-amber-700">Role</p>
+                          <p className="text-lg font-semibold text-amber-900">{loggedInAccount.role || dashboardAccessRole || 'N/A'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-violet-50 p-4">
+                          <p className="text-xs text-violet-700">Email</p>
+                          <p className="text-sm font-semibold text-violet-900 break-all">{loggedInAccount.email || 'N/A'}</p>
+                        </div>
+                        <div className="rounded-2xl bg-orange-50 p-4">
+                          <p className="text-xs text-orange-700">Contact</p>
+                          <p className="text-lg font-semibold text-orange-900">{loggedInAccount.contact || 'N/A'}</p>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <p className="text-xs text-slate-500">Address</p>
+                        <p className="text-sm font-semibold text-slate-900 mt-1">{loggedInAccount.address || 'N/A'}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingStaffProfile(true)}
+                        className="inline-flex items-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Edit My Details
+                      </button>
+                    </div>
+                  ) : (
+                    <form className="space-y-4" onSubmit={saveStaffProfile}>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">First Name</label>
+                          <input
+                            name="firstName"
+                            value={staffProfileDraft.firstName}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Middle Name</label>
+                          <input
+                            name="middleName"
+                            value={staffProfileDraft.middleName}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Last Name</label>
+                          <input
+                            name="lastName"
+                            value={staffProfileDraft.lastName}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Role</label>
+                          <input
+                            name="role"
+                            value={staffProfileDraft.role}
+                            className="mt-1 block w-full cursor-not-allowed rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-slate-500"
+                            disabled
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Email</label>
+                          <input
+                            name="email"
+                            type="email"
+                            value={staffProfileDraft.email}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Contact</label>
+                          <input
+                            name="contact"
+                            value={staffProfileDraft.contact}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                            required
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-slate-700">Address</label>
+                          <input
+                            name="address"
+                            value={staffProfileDraft.address}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-medium text-slate-700">New Password (Optional)</label>
+                          <input
+                            name="loginPassword"
+                            type="password"
+                            value={staffProfileDraft.loginPassword}
+                            onChange={handleStaffProfileDraftChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                            placeholder="Leave empty to keep current password"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="submit"
+                          disabled={staffProfileSaving}
+                          className="inline-flex items-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                        >
+                          {staffProfileSaving ? 'Saving...' : 'Save Changes'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStaffProfileDraft({
+                              staffId: loggedInAccount.staffId || '',
+                              firstName: loggedInAccount.firstName || '',
+                              middleName: loggedInAccount.middleName || '',
+                              lastName: loggedInAccount.lastName || '',
+                              email: loggedInAccount.email || '',
+                              contact: loggedInAccount.contact || '',
+                              address: loggedInAccount.address || '',
+                              role: loggedInAccount.role || 'Pharmacist',
+                              loginPassword: '',
+                            });
+                            setIsEditingStaffProfile(false);
+                          }}
+                          className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )
+                ) : (!isEditingStoreProfile ? (
                   <div className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="rounded-2xl bg-emerald-50 p-4">
@@ -2319,7 +2658,7 @@ const StoreDashboard = () => {
                       </button>
                     </div>
                   </form>
-                )}
+                ))}
               </div>
             )}
 
