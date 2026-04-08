@@ -34,7 +34,9 @@ import {
 
 const StoreDashboard = () => {
   const [selectedSection, setSelectedSection] = useState('staff');
+  const [dashboardAccessRole, setDashboardAccessRole] = useState('Store Admin');
   const [storeName, setStoreName] = useState('');
+  const [storeProfile, setStoreProfile] = useState({ ownerName: '', email: '', mobile: '' });
   const [storeDataLoading, setStoreDataLoading] = useState(false);
   const [staffMembers, setStaffMembers] = useState([]);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -46,6 +48,7 @@ const StoreDashboard = () => {
     email: '',
     address: '',
     role: 'Pharmacist',
+    loginPassword: '',
   });
   const [editingStaffId, setEditingStaffId] = useState(null);
   const [showStaffForm, setShowStaffForm] = useState(false);
@@ -761,10 +764,34 @@ const StoreDashboard = () => {
       if (userData?.storeName) {
         setStoreName(userData.storeName);
       }
+      if (userData?.dashboardAccessRole) {
+        setDashboardAccessRole(userData.dashboardAccessRole);
+      }
+      setStoreProfile({
+        ownerName: userData?.ownerName || userData?.loggedInStaff?.firstName || '',
+        email: userData?.loggedInStaff?.email || userData?.email || '',
+        mobile: userData?.loggedInStaff?.contact || userData?.mobile || '',
+      });
     } catch (error) {
       console.error('Failed to load store data:', error.message);
     } finally {
       setStoreDataLoading(false);
+    }
+  };
+
+  const loadRolePermissions = async () => {
+    const token = localStorage.getItem('medVisionToken');
+    if (!token) return;
+
+    try {
+      const response = await axios.get(`${baseURL}/store-staff/permissions`, {
+        params: { role: dashboardAccessRole },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setStaffPermissions(response.data?.permissions || []);
+    } catch (error) {
+      console.error('Failed to load role permissions:', error.message);
+      setStaffPermissions([]);
     }
   };
 
@@ -928,6 +955,7 @@ const StoreDashboard = () => {
       setStaffOpsLoading(true);
       const [permissionsResponse, performanceResponse, attendanceResponse, trainingResponse] = await Promise.all([
         axios.get(`${baseURL}/store-staff/permissions`, {
+          params: { role: dashboardAccessRole },
           headers: { Authorization: `Bearer ${token}` },
         }),
         axios.get(`${baseURL}/staff/performance`, {
@@ -1011,8 +1039,43 @@ const StoreDashboard = () => {
     { key: 'prescription', label: 'Prescription', icon: ClipboardList },
     { key: 'queries', label: 'Queries', icon: MessageSquare },
     { key: 'reviews', label: 'Reviews', icon: Star },
+    { key: 'myProfile', label: 'My Profile', icon: UserCheck },
     { key: 'reports', label: 'Reports', icon: BarChart3 },
   ];
+
+  const roleSectionAccess = {
+    'Store Admin': ['staff', 'promotions', 'importPatients', 'inventory', 'orders', 'financialManagement', 'prescription', 'queries', 'reviews', 'myProfile', 'reports'],
+    Pharmacist: ['prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
+    Operator: ['prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
+  };
+
+  const allowedSectionKeys = roleSectionAccess[dashboardAccessRole] || roleSectionAccess['Store Admin'];
+  const visibleSectionConfig = sectionConfig.filter((section) => allowedSectionKeys.includes(section.key));
+
+  const prescriptionSummary = prescriptions.reduce(
+    (acc, item) => {
+      const status = String(item.status || 'pending').toLowerCase();
+      acc.total += 1;
+      if (status === 'approved') acc.approved += 1;
+      else if (status === 'rejected') acc.rejected += 1;
+      else acc.pending += 1;
+
+      if (status === 'approved' || status === 'rejected') {
+        const reviewerName = String(item.reviewedByName || '').trim() || 'Store Admin';
+        const reviewerRole = String(item.reviewedByRole || '').trim() || 'Store Admin';
+        const current = acc.byReviewer[reviewerName] || { name: reviewerName, role: reviewerRole, approved: 0, rejected: 0, total: 0 };
+        current.total += 1;
+        if (status === 'approved') current.approved += 1;
+        if (status === 'rejected') current.rejected += 1;
+        acc.byReviewer[reviewerName] = current;
+      }
+
+      return acc;
+    },
+    { total: 0, approved: 0, rejected: 0, pending: 0, byReviewer: {} }
+  );
+
+  const prescriptionReviewerStats = Object.values(prescriptionSummary.byReviewer).sort((a, b) => b.total - a.total);
 
   const handleStaffChange = (e) => {
     const { name, value } = e.target;
@@ -1020,6 +1083,11 @@ const StoreDashboard = () => {
   };
 
   const openStaffForm = () => {
+    if (!allowedSectionKeys.includes('staff')) {
+      toast.error('You do not have access to add staff members.');
+      return;
+    }
+
     setEditingStaffId(null);
     setShowStaffForm(true);
     setNewStaff({
@@ -1030,12 +1098,17 @@ const StoreDashboard = () => {
       email: '',
       address: '',
       role: 'Pharmacist',
+      loginPassword: '',
     });
   };
 
   const addStaffMember = async (e) => {
     e.preventDefault();
     if (!newStaff.firstName || !newStaff.lastName || !newStaff.email || !newStaff.contact) return;
+    if (!editingStaffId && !newStaff.loginPassword) {
+      toast.error('Login password is required for new staff accounts.');
+      return;
+    }
 
     const token = localStorage.getItem('medVisionToken');
     if (!token) return;
@@ -1048,6 +1121,7 @@ const StoreDashboard = () => {
       email: newStaff.email,
       contact: newStaff.contact,
       address: newStaff.address,
+      loginPassword: newStaff.loginPassword,
     };
 
     try {
@@ -1071,6 +1145,7 @@ const StoreDashboard = () => {
         email: '',
         address: '',
         role: 'Pharmacist',
+        loginPassword: '',
       });
       setShowStaffForm(false);
     } catch (error) {
@@ -1089,6 +1164,7 @@ const StoreDashboard = () => {
       email: staff.email,
       address: staff.address,
       role: staff.role,
+      loginPassword: '',
     });
   };
 
@@ -1406,32 +1482,44 @@ const StoreDashboard = () => {
   }, []);
 
   useEffect(() => {
-    if (selectedSection === 'staff') {
+    if (dashboardAccessRole) {
+      loadRolePermissions();
+    }
+  }, [dashboardAccessRole]);
+
+  useEffect(() => {
+    if (!allowedSectionKeys.includes(selectedSection)) {
+      setSelectedSection(allowedSectionKeys[0] || 'myProfile');
+    }
+  }, [dashboardAccessRole, selectedSection]);
+
+  useEffect(() => {
+    if (selectedSection === 'staff' && allowedSectionKeys.includes('staff')) {
       loadStoreStaffMembers();
     }
-    if (selectedSection === 'inventory') {
+    if (selectedSection === 'inventory' && allowedSectionKeys.includes('inventory')) {
       loadStoreInventory();
     }
-    if (selectedSection === 'financialManagement') {
+    if (selectedSection === 'financialManagement' && allowedSectionKeys.includes('financialManagement')) {
       loadFinance();
       loadSuppliers();
     }
-    if (selectedSection === 'promotions') {
+    if (selectedSection === 'promotions' && allowedSectionKeys.includes('promotions')) {
       loadPromotionalCampaigns();
     }
-    if (selectedSection === 'orders' || selectedSection === 'reports') {
+    if ((selectedSection === 'orders' || selectedSection === 'reports') && allowedSectionKeys.includes(selectedSection)) {
       loadStoreOrders();
     }
-    if (selectedSection === 'prescription') {
+    if (selectedSection === 'prescription' && allowedSectionKeys.includes('prescription')) {
       loadStorePrescriptions();
     }
-    if (selectedSection === 'queries') {
+    if (selectedSection === 'queries' && allowedSectionKeys.includes('queries')) {
       loadStoreQueries();
     }
-    if (selectedSection === 'reviews') {
+    if (selectedSection === 'reviews' && allowedSectionKeys.includes('reviews')) {
       loadStoreReviews();
     }
-    if (selectedSection === 'staffCompliance') {
+    if (selectedSection === 'staffCompliance' && allowedSectionKeys.includes('staff')) {
       loadStoreStaffMembers();
       loadStaffOperations();
       loadCompliance();
@@ -1440,7 +1528,7 @@ const StoreDashboard = () => {
     if (selectedSection !== 'inventory') {
       stopBarcodeScanner();
     }
-  }, [selectedSection]);
+  }, [selectedSection, dashboardAccessRole]);
 
   useEffect(() => {
     return () => {
@@ -1569,6 +1657,7 @@ const StoreDashboard = () => {
   const staffCompliancePermissions = staffPermissions.filter((permission) =>
     staffCompliancePermissionPrefixes.some((prefix) => String(permission || '').startsWith(prefix))
   );
+  const canManageStaff = allowedSectionKeys.includes('staff');
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1585,34 +1674,21 @@ const StoreDashboard = () => {
                 Manage staff, inventory, orders, prescriptions, and customer queries from one central control panel.
               </p>
             </div>
-            <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setSelectedSection('inventory')}
-                className="rounded-2xl border border-cyan-300/30 bg-cyan-500/20 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/30"
-              >
-                Manage Inventory
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedSection('reports')}
-                className="rounded-2xl border border-emerald-300/30 bg-emerald-500/20 px-4 py-3 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/30"
-              >
-                View Reports
-              </button>
-            </div>
           </div>
         </div>
 
         <div className="grid gap-6 xl:grid-cols-[260px_1fr]">
           <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-8">
-              <p className="text-sm text-slate-500">Store Manager</p>
+              <p className="text-sm text-slate-500">Access Role</p>
               <h2 className="text-2xl font-semibold text-slate-900 mt-2">Control Panel</h2>
               <p className="mt-2 text-sm text-slate-600">Select a section to manage your store.</p>
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                {dashboardAccessRole}
+              </div>
             </div>
             <div className="space-y-3">
-              {sectionConfig.map((section) => {
+              {visibleSectionConfig.map((section) => {
                 const Icon = section.icon;
                 const active = selectedSection === section.key;
                 return (
@@ -1635,10 +1711,41 @@ const StoreDashboard = () => {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Current View</p>
-                  <h1 className="text-2xl font-semibold text-slate-900 capitalize">{sectionConfig.find((item) => item.key === selectedSection)?.label}</h1>
+                  <h1 className="text-2xl font-semibold text-slate-900 capitalize">{visibleSectionConfig.find((item) => item.key === selectedSection)?.label || 'Overview'}</h1>
                 </div>
               </div>
             </div>
+
+            {selectedSection === 'myProfile' && (
+              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center gap-3 mb-6">
+                  <UserCheck className="text-indigo-600" size={24} />
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">My Profile</h2>
+                    <p className="text-sm text-slate-500">Role, account, and access scope for the current dashboard view.</p>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-xs text-slate-500">Store</p>
+                    <p className="text-lg font-semibold text-slate-900">{storeName || 'N/A'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-indigo-50 p-4">
+                    <p className="text-xs text-indigo-600">Active Role View</p>
+                    <p className="text-lg font-semibold text-indigo-900">{dashboardAccessRole}</p>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-4">
+                    <p className="text-xs text-emerald-600">Owner Name</p>
+                    <p className="text-lg font-semibold text-emerald-900">{storeProfile.ownerName || 'N/A'}</p>
+                  </div>
+                  <div className="rounded-2xl bg-blue-50 p-4">
+                    <p className="text-xs text-blue-600">Contact</p>
+                    <p className="text-lg font-semibold text-blue-900">{storeProfile.mobile || 'N/A'}</p>
+                    <p className="text-sm text-blue-700">{storeProfile.email || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {selectedSection === 'staff' && (
               <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1652,16 +1759,18 @@ const StoreDashboard = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 justify-end">
+                  <div className="relative z-10 flex flex-wrap items-center gap-2 justify-end pointer-events-auto">
                     {!showStaffForm ? (
                       <>
-                        <button
-                          type="button"
-                          onClick={openStaffForm}
-                          className="inline-flex items-center rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition"
-                        >
-                          Add Staff Member
-                        </button>
+                        {canManageStaff && (
+                          <button
+                            type="button"
+                            onClick={openStaffForm}
+                            className="inline-flex items-center rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition"
+                          >
+                            Add Staff Member
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setShowStaffSearchFields(true)}
@@ -1699,6 +1808,7 @@ const StoreDashboard = () => {
                             email: '',
                             address: '',
                             role: 'Pharmacist',
+                            loginPassword: '',
                           });
                         }}
                         className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
@@ -1894,10 +2004,22 @@ const StoreDashboard = () => {
                             onChange={handleStaffChange}
                             className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
                           >
-                            <option value="Manager">Manager</option>
+                            <option value="Store Admin">Store Admin</option>
                             <option value="Pharmacist">Pharmacist</option>
-                            <option value="Technician">Technician</option>
+                            <option value="Operator">Operator</option>
                           </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700">Login Password {editingStaffId ? '(optional to reset)' : ''}</label>
+                          <input
+                            name="loginPassword"
+                            type="password"
+                            value={newStaff.loginPassword}
+                            onChange={handleStaffChange}
+                            className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                            placeholder={editingStaffId ? 'Enter new password to reset' : 'Set login password'}
+                            required={!editingStaffId}
+                          />
                         </div>
                       </div>
                       <button
@@ -1919,6 +2041,7 @@ const StoreDashboard = () => {
                             email: '',
                             address: '',
                             role: 'Pharmacist',
+                            loginPassword: '',
                           });
                         }}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
@@ -2155,6 +2278,16 @@ const StoreDashboard = () => {
                       <p className="text-xs text-rose-700">Outstanding</p>
                       <p className="text-2xl font-bold text-rose-900">${Number(invoiceSummary.outstanding || 0).toFixed(2)}</p>
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-teal-200 bg-teal-50 p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-teal-900">Why Financial Management Helps Store Owners</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl bg-white p-4 text-sm text-slate-700">You can instantly see cash stuck in outstanding invoices and improve collection speed.</div>
+                    <div className="rounded-2xl bg-white p-4 text-sm text-slate-700">Profit and category margin trends show which medicines drive real earnings, not just sales volume.</div>
+                    <div className="rounded-2xl bg-white p-4 text-sm text-slate-700">Supplier payment tracking helps avoid overdues, missed credits, and purchase planning mistakes.</div>
+                    <div className="rounded-2xl bg-white p-4 text-sm text-slate-700">GST/tax summaries reduce filing errors and help keep compliance records audit-ready.</div>
                   </div>
                 </div>
 
@@ -3271,6 +3404,40 @@ const StoreDashboard = () => {
                     </div>
                   </div>
                 </div>
+                <div className="mb-6 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+                  <div className="grid gap-3 sm:grid-cols-4">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs text-slate-500">Received</p>
+                      <p className="text-2xl font-bold text-slate-900">{prescriptionSummary.total}</p>
+                    </div>
+                    <div className="rounded-2xl bg-amber-50 p-4">
+                      <p className="text-xs text-amber-700">Pending</p>
+                      <p className="text-2xl font-bold text-amber-900">{prescriptionSummary.pending}</p>
+                    </div>
+                    <div className="rounded-2xl bg-emerald-50 p-4">
+                      <p className="text-xs text-emerald-700">Approved</p>
+                      <p className="text-2xl font-bold text-emerald-900">{prescriptionSummary.approved}</p>
+                    </div>
+                    <div className="rounded-2xl bg-rose-50 p-4">
+                      <p className="text-xs text-rose-700">Rejected</p>
+                      <p className="text-2xl font-bold text-rose-900">{prescriptionSummary.rejected}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-sm font-semibold text-slate-900">Approved / Rejected By</p>
+                    <div className="mt-3 max-h-28 space-y-2 overflow-y-auto">
+                      {prescriptionReviewerStats.length === 0 ? (
+                        <p className="text-xs text-slate-500">No reviewed prescriptions yet.</p>
+                      ) : prescriptionReviewerStats.map((reviewer) => (
+                        <div key={reviewer.name} className="rounded-xl bg-slate-50 p-2 text-xs text-slate-700">
+                          <span className="font-semibold text-slate-900">{reviewer.name}</span> ({reviewer.role})
+                          <span className="ml-2 text-emerald-700">Approved: {reviewer.approved}</span>
+                          <span className="ml-2 text-rose-700">Rejected: {reviewer.rejected}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
                 <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
                   <div className="space-y-3">
                     {prescriptionsLoading ? (
@@ -3309,6 +3476,9 @@ const StoreDashboard = () => {
                               {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
                             </span>
                           </div>
+                          {(normalizedStatus === 'approved' || normalizedStatus === 'rejected') && (
+                            <p className="mt-2 text-xs text-slate-500">By {prescription.reviewedByName || 'Store Admin'}</p>
+                          )}
                         </button>
                       );
                     })}
@@ -3321,6 +3491,12 @@ const StoreDashboard = () => {
                             <p className="text-sm font-medium text-slate-500">Review Prescription</p>
                             <h3 className="text-2xl font-semibold text-slate-900">{selectedPrescription.userId?.name || 'Unknown User'}</h3>
                             <p className="text-sm text-slate-500">{selectedPrescription.userId?.email || 'No email available'}</p>
+                            {(String(selectedPrescription.status || '').toLowerCase() === 'approved' || String(selectedPrescription.status || '').toLowerCase() === 'rejected') && (
+                              <p className="text-xs text-slate-500 mt-1">
+                                Reviewed by {selectedPrescription.reviewedByName || 'Store Admin'} ({selectedPrescription.reviewedByRole || 'Store Admin'})
+                                {selectedPrescription.reviewedAt ? ` on ${new Date(selectedPrescription.reviewedAt).toLocaleString()}` : ''}
+                              </p>
+                            )}
                           </div>
                           <span className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${selectedPrescription.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : selectedPrescription.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                             {selectedPrescription.status?.charAt(0).toUpperCase() + selectedPrescription.status?.slice(1)}

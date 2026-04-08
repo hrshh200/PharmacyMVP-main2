@@ -94,6 +94,36 @@ const userSchema = new mongoose.Schema({
       type: String,
    },
 
+   // Unified role and account mapping
+   roleCode: {
+      type: Number,
+      enum: [1, 2, 3, 4],
+      default: 1,
+      index: true,
+   },
+   roleLabel: {
+      type: String,
+      default: 'Patient',
+      trim: true,
+   },
+   linkedStoreId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Store',
+      default: null,
+      index: true,
+   },
+   linkedStaffId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'StoreStaff',
+      default: null,
+      index: true,
+   },
+   isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+   },
+
    // Patient Wishlist
    wishlist: [
       {

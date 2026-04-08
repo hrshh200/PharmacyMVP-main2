@@ -13,6 +13,21 @@ const prescriptionRequestSchema = new mongoose.Schema(
       ref: "Store",
       default: null,
     },
+    reviewedByStaffId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "StoreStaff",
+      default: null,
+    },
+    reviewedByName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    reviewedByRole: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     fileName: {
       type: String,
       required: true,

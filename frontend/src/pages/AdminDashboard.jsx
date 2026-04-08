@@ -144,7 +144,7 @@ const AdminDashboard = () => {
   if (!token) return;
 
   try {
-    const response = await axios.post(`${baseURL}/addstores`, payload, {
+    const response = await axios.post(`${baseURL}/stores`, payload, {
       headers: {
         Authorization: `Bearer ${token}`,
       },

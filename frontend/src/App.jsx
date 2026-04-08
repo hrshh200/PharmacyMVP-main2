@@ -7,6 +7,7 @@ import PublicRoute from "./components/Route//PublicRoute";
 import Layout from './pages/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
 import Signup from './pages/Signup';
 import OnlinePharmacy from './pages/OnlinePharmacy';
 import Dashboard from './pages/Dashboard';
@@ -55,6 +56,14 @@ function App() {
             element={
               <PublicRoute>
                 <Signup />
+              </PublicRoute>
+            }
+          />
+          <Route
+            path="forgot-password"
+            element={
+              <PublicRoute>
+                <ForgotPassword />
               </PublicRoute>
             }
           />

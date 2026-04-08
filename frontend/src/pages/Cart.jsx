@@ -29,6 +29,9 @@ const CartPage = ({ appliedCampaign = null, selectedStoreId = null }) => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  
+  // Use passed selectedStoreId or retrieve from localStorage
+  const storeId = selectedStoreId || (typeof localStorage !== 'undefined' ? localStorage.getItem('medVisionSelectedStoreId') : null);
 
   const subtotalAmount = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
 
@@ -130,21 +133,37 @@ const CartPage = ({ appliedCampaign = null, selectedStoreId = null }) => {
 
   useEffect(() => {
     if (appliedCampaign) {
-      setActiveCampaign(appliedCampaign);
-      setCouponInput(appliedCampaign.couponCode || '');
-      localStorage.setItem(appliedCampaignStorageKey, JSON.stringify(appliedCampaign));
+      const appliedStoreId = String(appliedCampaign.storeId || '');
+      const selectedStore = String(storeId || '');
+      if (!selectedStore || !appliedStoreId || appliedStoreId === selectedStore) {
+        setActiveCampaign(appliedCampaign);
+        setCouponInput(appliedCampaign.couponCode || '');
+        localStorage.setItem(appliedCampaignStorageKey, JSON.stringify(appliedCampaign));
+      } else {
+        setActiveCampaign(null);
+        setCouponInput('');
+        localStorage.removeItem(appliedCampaignStorageKey);
+      }
       return;
     }
 
     try {
       const storedCampaign = JSON.parse(localStorage.getItem(appliedCampaignStorageKey) || 'null');
-      setActiveCampaign(storedCampaign);
-      setCouponInput(storedCampaign?.couponCode || '');
+      const campaignStoreId = String(storedCampaign?.storeId || '');
+      const selectedStore = String(storeId || '');
+      if (!storedCampaign || !selectedStore || !campaignStoreId || campaignStoreId === selectedStore) {
+        setActiveCampaign(storedCampaign);
+        setCouponInput(storedCampaign?.couponCode || '');
+      } else {
+        setActiveCampaign(null);
+        setCouponInput('');
+        localStorage.removeItem(appliedCampaignStorageKey);
+      }
     } catch {
       setActiveCampaign(null);
       setCouponInput('');
     }
-  }, [appliedCampaign]);
+  }, [appliedCampaign, storeId]);
 
   const validateAndApplyCoupon = async (couponCode) => {
     const normalizedCode = String(couponCode || '').trim().toUpperCase();
@@ -158,13 +177,18 @@ const CartPage = ({ appliedCampaign = null, selectedStoreId = null }) => {
       return;
     }
 
+    if (!storeId) {
+      setCouponFeedback({ type: 'error', message: 'Please select a store before applying coupon' });
+      return;
+    }
+
     try {
       setCouponValidationLoading(true);
       setCouponFeedback(null);
       const response = await axios.post(`${baseURL}/marketing/campaigns/validate-coupon`, {
         couponCode: normalizedCode,
         subtotal: subtotalAmount,
-        storeId: selectedStoreId || activeCampaign?.storeId || undefined,
+        storeId,
       });
 
       if (response.data?.valid) {
@@ -196,9 +220,15 @@ const CartPage = ({ appliedCampaign = null, selectedStoreId = null }) => {
 
   const fetchAvailableCoupons = async () => {
     try {
+      if (!storeId) {
+        setAvailableCoupons([]);
+        setCouponFeedback({ type: 'error', message: 'Please select a store to view coupons' });
+        return;
+      }
+
       setLoadingCoupons(true);
       const response = await axios.get(`${baseURL}/marketing/campaigns/public`, {
-        params: { limit: 20 }
+        params: { limit: 20, storeId }
       });
       setAvailableCoupons(response.data.campaigns || []);
     } catch (error) {
@@ -288,6 +318,7 @@ const CartPage = ({ appliedCampaign = null, selectedStoreId = null }) => {
       const response = await axios.post(`${baseURL}/additemstocart`, {
         id: userData?._id,
         items: cartItems,
+        storeId: storeId,
       });
 
       const currentOrderId = response.data.orderId || response.data.order?.orderId;
@@ -460,6 +491,7 @@ const CartPage = ({ appliedCampaign = null, selectedStoreId = null }) => {
                     setShowCouponsModal(true);
                     fetchAvailableCoupons();
                   }}
+                  disabled={!storeId}
                   className="w-full py-2.5 rounded-lg border border-blue-300 bg-white text-blue-600 font-semibold text-sm hover:bg-blue-50 transition flex items-center justify-center gap-2 active:scale-95"
                 >
                   <Sparkles className="w-4 h-4" />

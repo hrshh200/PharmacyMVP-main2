@@ -15,7 +15,7 @@ const StoreStaffSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      enum: ['Manager', 'Pharmacist', 'Technician'],
+      enum: ['Store Admin', 'Manager', 'Pharmacist', 'Operator', 'Technician'],
       default: 'Pharmacist',
     },
     email: { type: String, required: true, trim: true, lowercase: true },

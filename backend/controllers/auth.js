@@ -192,7 +192,7 @@ const buildOrderPlacedEmailHtml = ({ orderId, amount, status }) => {
         accent: '#0f766e',
         summary: [
             { label: 'Order ID', value: orderId, background: '#eff6ff', border: '#bfdbfe', labelColor: '#1d4ed8' },
-            { label: 'Amount', value: `INR ${Number(amount || 0).toFixed(2)}`, background: '#f8fafc', border: '#e2e8f0', labelColor: '#64748b' },
+            { label: 'Amount', value: `USD ${Number(amount || 0).toFixed(2)}`, background: '#f8fafc', border: '#e2e8f0', labelColor: '#64748b' },
             { label: 'Status', value: status || 'Order Placed', background: '#ecfeff', border: '#99f6e4', labelColor: '#0f766e' },
         ],
         sections: [
@@ -458,11 +458,21 @@ const buildOrderTracking = (status, dateLabel) => {
     ];
 };
 
-const mapPatientOrder = (order) => ({
+const mapPatientOrder = (order) => {
+    const store = order?.storeId && typeof order.storeId === 'object' ? order.storeId : null;
+
+    return {
     _id: order._id,
     orderId: order.orderId,
     userId: order.userId,
-    storeId: order.storeId,
+    storeId: store?._id || order.storeId,
+    storeName: store?.storeName || order.storeName || '',
+    storeEmail: store?.email || order.storeEmail || '',
+    storeMobile: store?.mobile || order.storeMobile || '',
+    storeAddress: store?.address || order.storeAddress || '',
+    storeCity: store?.city || order.storeCity || '',
+    storeState: store?.state || order.storeState || '',
+    storePincode: store?.pincode || order.storePincode || '',
     items: (order.items || []).map((item) => ({
         id: item.id,
         name: item.name,
@@ -477,7 +487,8 @@ const mapPatientOrder = (order) => ({
     trackingStatus: order.trackingStatus || 'Order Placed',
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
-});
+};
+};
 
 const mapStoreOrder = (order) => {
     const user = order.userId || {};
@@ -523,6 +534,58 @@ const resolveOrderStoreId = async (preferredStoreId) => {
 
     const fallbackStore = await Store.findOne({}).sort({ createdAt: 1 }).select('_id').lean();
     return fallbackStore?._id || null;
+};
+
+const ROLE_CODES = {
+    PATIENT: 1,
+    PHARMACIST: 2,
+    OPERATOR: 3,
+    STORE_ADMIN: 4,
+};
+
+const roleCodeToLabel = (roleCode) => {
+    const numericCode = Number(roleCode);
+    if (numericCode === ROLE_CODES.PHARMACIST) return 'Pharmacist';
+    if (numericCode === ROLE_CODES.OPERATOR) return 'Operator';
+    if (numericCode === ROLE_CODES.STORE_ADMIN) return 'Store Admin';
+    return 'Patient';
+};
+
+const normalizedRoleToCode = (normalizedRole) => {
+    if (normalizedRole === 'Operator') return ROLE_CODES.OPERATOR;
+    if (normalizedRole === 'Store Admin') return ROLE_CODES.STORE_ADMIN;
+    return ROLE_CODES.PHARMACIST;
+};
+
+const createOrUpdateStoreAdminUser = async ({ store, plainPassword }) => {
+    if (!store?._id || !store?.email || !plainPassword) return;
+
+    const passwordHash = await bcrypt.hash(String(plainPassword), 10);
+    const basePayload = {
+        name: `${store.ownerName || store.storeName || 'Store Admin'} (${store.email})`,
+        firstName: store.ownerName || store.storeName || 'Store',
+        lastName: 'Admin',
+        email: store.email,
+        mobile: store.mobile || 'NA',
+        address: store.address || 'NA',
+        password: passwordHash,
+        hash_password: passwordHash,
+        roleCode: ROLE_CODES.STORE_ADMIN,
+        roleLabel: roleCodeToLabel(ROLE_CODES.STORE_ADMIN),
+        linkedStoreId: store._id,
+        linkedStaffId: null,
+        isActive: String(store.status || 'Active') === 'Active',
+        storeName: store.storeName || '',
+        ownerName: store.ownerName || '',
+        licenceNumber: store.licenceNumber || '',
+        gstNumber: store.gstNumber || '',
+    };
+
+    await User.findOneAndUpdate(
+        { email: store.email },
+        { $set: basePayload },
+        { new: true, upsert: true, setDefaultsOnInsert: true },
+    );
 };
 
 const signUp = async (req, res) => {
@@ -588,7 +651,11 @@ const signUp = async (req, res) => {
                 ownerName,
                 licenceNumber,
                 gstNumber,
+                password: hash_password,
                 hash_password,
+                roleCode: ROLE_CODES.PATIENT,
+                roleLabel: roleCodeToLabel(ROLE_CODES.PATIENT),
+                isActive: true,
             };
 
             // Save the new user
@@ -619,7 +686,7 @@ const signUp = async (req, res) => {
 
 const signIn = async (req, res) => {
     try {
-        const { userType = 'patient', email, password } = req.body;
+        const { userType = 'patient', email, password, selectedStoreRoleCode } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({
@@ -627,50 +694,152 @@ const signIn = async (req, res) => {
             });
         }
 
-        let user;
-        let role;
-
         if (userType === 'admin') {
-            user = await Admin.findOne({ email });
-            role = 'admin';
-        }
-        else if (userType === 'store') {
-            user = await Store.findOne({ email });
-            role = 'Store';
-        }
-        else {
-            user = await User.findOne({ email });
-            role = 'User';
+            const admin = await Admin.findOne({ email });
+            if (!admin) {
+                return res.status(400).json({ message: "User does not exist..!" });
+            }
+
+            if (password !== admin.password) {
+                return res.status(401).json({ message: "Invalid email or password" });
+            }
+
+            const token = jwt.sign(
+                { _id: admin._id, role: 'admin' },
+                process.env.JWT_SECRET,
+                { expiresIn: "30d" }
+            );
+
+            return res.status(200).json({
+                token,
+                user: { _id: admin._id, name: admin.name, email: admin.email, role: 'admin' },
+            });
         }
 
+        if (userType === 'store') {
+            const selectedRoleCode = Number(selectedStoreRoleCode) || ROLE_CODES.STORE_ADMIN;
+            if (![ROLE_CODES.PHARMACIST, ROLE_CODES.OPERATOR, ROLE_CODES.STORE_ADMIN].includes(selectedRoleCode)) {
+                return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid store role selected' });
+            }
+
+            const storeUser = await User.findOne({ email, roleCode: selectedRoleCode }).select('+hash_password').lean();
+
+            if (storeUser) {
+                if (!storeUser.isActive) {
+                    return res.status(StatusCodes.FORBIDDEN).json({ message: 'This staff account is inactive. Contact store admin.' });
+                }
+
+                const passwordHash = storeUser.hash_password || storeUser.password;
+                const isMatch = passwordHash ? await bcrypt.compare(password, passwordHash) : false;
+                if (!isMatch) {
+                    return res.status(401).json({ message: "Invalid email or password" });
+                }
+
+                const linkedStoreId = storeUser.linkedStoreId;
+                if (!linkedStoreId) {
+                    return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Store mapping missing for this account' });
+                }
+
+                const token = jwt.sign(
+                    {
+                        _id: linkedStoreId,
+                        role: 'Store',
+                        roleCode: selectedRoleCode,
+                        roleLabel: roleCodeToLabel(selectedRoleCode),
+                        authUserId: storeUser._id,
+                        storeId: linkedStoreId,
+                        staffId: storeUser.linkedStaffId || null,
+                        principalType: selectedRoleCode === ROLE_CODES.STORE_ADMIN ? 'store-user' : 'staff',
+                    },
+                    process.env.JWT_SECRET,
+                    { expiresIn: '30d' },
+                );
+
+                return res.status(200).json({
+                    token,
+                    user: {
+                        _id: linkedStoreId,
+                        authUserId: storeUser._id,
+                        name: storeUser.name,
+                        email: storeUser.email,
+                        role: 'Store',
+                        roleCode: selectedRoleCode,
+                        roleLabel: roleCodeToLabel(selectedRoleCode),
+                        staffId: storeUser.linkedStaffId || null,
+                    },
+                });
+            }
+
+            if (selectedRoleCode === ROLE_CODES.STORE_ADMIN) {
+                const store = await Store.findOne({ email });
+                if (!store) {
+                    return res.status(400).json({ message: "User does not exist..!" });
+                }
+
+                if (password !== store.password) {
+                    return res.status(401).json({ message: "Invalid email or password" });
+                }
+
+                const token = jwt.sign(
+                    {
+                        _id: store._id,
+                        role: 'Store',
+                        roleCode: ROLE_CODES.STORE_ADMIN,
+                        roleLabel: roleCodeToLabel(ROLE_CODES.STORE_ADMIN),
+                        authUserId: store._id,
+                        storeId: store._id,
+                        principalType: 'store',
+                    },
+                    process.env.JWT_SECRET,
+                    { expiresIn: "30d" }
+                );
+
+                return res.status(200).json({
+                    token,
+                    user: {
+                        _id: store._id,
+                        name: store.storeName || store.ownerName || 'Store Admin',
+                        email: store.email,
+                        role: 'Store',
+                        roleCode: ROLE_CODES.STORE_ADMIN,
+                        roleLabel: roleCodeToLabel(ROLE_CODES.STORE_ADMIN),
+                    },
+                });
+            }
+
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'No account found for selected store role' });
+        }
+
+        const user = await User.findOne({
+            email,
+            $or: [{ roleCode: ROLE_CODES.PATIENT }, { roleCode: { $exists: false } }],
+        }).select('+hash_password');
         if (!user) {
             return res.status(400).json({
                 message: "User does not exist..!",
             });
         }
 
-        let isMatch;
-        if (userType === 'admin' || userType === 'store') {
-            isMatch = password === user.password;
-        } else {
-            isMatch = await bcrypt.compare(password, user.hash_password);
-        }
-
+        const isMatch = await bcrypt.compare(password, user.hash_password);
         if (!isMatch) {
             return res.status(401).json({
                 message: "Invalid email or password",
             });
         }
 
+        if (!user.roleCode) {
+            await User.updateOne({ _id: user._id }, { $set: { roleCode: ROLE_CODES.PATIENT, roleLabel: roleCodeToLabel(ROLE_CODES.PATIENT), isActive: true } });
+        }
+
         const token = jwt.sign(
-            { _id: user._id, role },
+            { _id: user._id, role: 'User', roleCode: ROLE_CODES.PATIENT, roleLabel: roleCodeToLabel(ROLE_CODES.PATIENT) },
             process.env.JWT_SECRET,
             { expiresIn: "30d" }
         );
 
         return res.status(200).json({
             token,
-            user: { _id: user._id, name: user.name, email: user.email, role },
+            user: { _id: user._id, name: user.name, email: user.email, role: 'User', roleCode: ROLE_CODES.PATIENT, roleLabel: roleCodeToLabel(ROLE_CODES.PATIENT) },
         });
 
     } catch (error) {
@@ -681,16 +850,132 @@ const signIn = async (req, res) => {
     }
 };
 
+const forgotPassword = async (req, res) => {
+    try {
+        const { email, newPassword, confirmPassword } = req.body;
+
+        if (!email || !newPassword || !confirmPassword) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Email, new password, and confirm password are required' });
+        }
+
+        if (String(newPassword) !== String(confirmPassword)) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'New password and confirm password do not match' });
+        }
+
+        if (String(newPassword).length < 6) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Password must be at least 6 characters long' });
+        }
+
+        const normalizedEmail = String(email).trim().toLowerCase();
+        const escapedEmail = normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const emailFilter = { $regex: `^${escapedEmail}$`, $options: 'i' };
+
+        const [userAccount, storeAccount, adminAccount] = await Promise.all([
+            User.findOne({ email: emailFilter }).select('_id email').lean(),
+            Store.findOne({ email: emailFilter }).select('_id email ownerName storeName').lean(),
+            Admin.findOne({ email: emailFilter }).select('_id email').lean(),
+        ]);
+
+        if (!userAccount && !storeAccount && !adminAccount) {
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'Account not found for this email' });
+        }
+
+        const passwordHash = await bcrypt.hash(String(newPassword), 10);
+
+        const updateTasks = [];
+        if (userAccount?._id) {
+            updateTasks.push(
+                User.updateOne(
+                    { _id: userAccount._id },
+                    { $set: { password: passwordHash, hash_password: passwordHash, isActive: true } },
+                )
+            );
+        }
+
+        if (storeAccount?._id) {
+            // Legacy store login still reads plain password from Store collection.
+            updateTasks.push(
+                Store.updateOne(
+                    { _id: storeAccount._id },
+                    { $set: { password: String(newPassword) } },
+                )
+            );
+        }
+
+        if (adminAccount?._id) {
+            updateTasks.push(
+                Admin.updateOne(
+                    { _id: adminAccount._id },
+                    { $set: { password: String(newPassword) } },
+                )
+            );
+        }
+
+        await Promise.all(updateTasks);
+
+        runInBackground('password-reset-email', async () => {
+            await sendDirectEmailSafely({
+                to: normalizedEmail,
+                subject: 'Your Pharmacy MVP password has been reset',
+                text: 'Your password was reset successfully. You can now sign in with your new password.',
+                html: buildEmailLayout({
+                    eyebrow: 'Password Reset',
+                    title: 'Password updated successfully',
+                    intro: 'Your password has been changed. Use your new password the next time you sign in.',
+                    accent: '#0f766e',
+                    summary: [
+                        { label: 'Account Email', value: normalizedEmail, background: '#eff6ff', border: '#bfdbfe', labelColor: '#1d4ed8' },
+                        { label: 'Status', value: 'Password Updated', background: '#ecfeff', border: '#99f6e4', labelColor: '#0f766e' },
+                    ],
+                    footer: 'If you did not request this change, contact support immediately.',
+                }),
+                context: 'password-reset-success',
+            });
+        });
+
+        return res.status(StatusCodes.OK).json({ message: 'Password reset successful. Please login with your new password.' });
+    } catch (error) {
+        console.error('forgotPassword error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to reset password' });
+    }
+};
+
 
 const fetchData = async (req, res) => {
     try {
         const decoded = req.user;
 
-        const userModel = decoded.role === 'Store' ? Store : User;
+        if (decoded.role === 'Store') {
+            const storeId = decoded.storeId || decoded._id;
+            const storeData = await Store.findById(storeId).lean();
 
-        const userData = await userModel
-            .findById(decoded._id)
-            .select('-hash_password');
+            if (!storeData) {
+                return res.status(404).json({
+                    message: "User not found",
+                });
+            }
+
+            let loggedInStaff = null;
+            if (decoded.staffId) {
+                loggedInStaff = await StoreStaff.findById(decoded.staffId)
+                    .select('firstName lastName email contact role status')
+                    .lean();
+            }
+
+            return res.status(200).json({
+                success: true,
+                userData: {
+                    ...storeData,
+                    dashboardAccessRole: roleCodeToLabel(decoded.roleCode || ROLE_CODES.STORE_ADMIN),
+                    roleCode: Number(decoded.roleCode) || ROLE_CODES.STORE_ADMIN,
+                    roleLabel: roleCodeToLabel(decoded.roleCode || ROLE_CODES.STORE_ADMIN),
+                    staffId: decoded.staffId || null,
+                    loggedInStaff,
+                },
+            });
+        }
+
+        const userData = await User.findById(decoded._id).select('-hash_password');
 
         if (!userData) {
             return res.status(404).json({
@@ -698,13 +983,13 @@ const fetchData = async (req, res) => {
             });
         }
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             userData,
         });
 
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             message: "Error fetching data",
         });
     }
@@ -1341,17 +1626,16 @@ const finalitems = async (req, res) => {
             quantity: Number(item.quantity) || 1,
             price: Number(item.price) || 0,
         }));
-
-        const newOrder = await Order.create({
-            orderId,
-            userId: user._id,
-            storeId: resolvedStoreId,
-            items: normalizedItems,
-            totalPrice: normalizedItems.reduce((total, item) => total + item.price * item.quantity, 0),
-            payment: 'Pending',
-            address: 'TBD',
-            status: 'Pending',
-        });
+                 const newOrder = await Order.create({
+                     orderId,
+                     userId: user._id,
+                     storeId: resolvedStoreId,
+                     items: normalizedItems,
+                     totalPrice: normalizedItems.reduce((total, item) => total + item.price * item.quantity, 0),
+                     payment: 'Pending',
+                     address: 'TBD',
+                     status: 'Pending',
+                 });
 
         return res.status(200).json({
             message: 'Medicine added successfully to orders',
@@ -1428,7 +1712,7 @@ const finalpayment = async (req, res) => {
             const notificationResult = await triggerUserNotifications({
                 userId: updatedOrder.userId,
                 emailSubject: `Order placed successfully: ${updatedOrder.orderId}`,
-                emailMessage: `Your order has been placed successfully.\n\nOrder ID: ${updatedOrder.orderId}\nAmount: INR ${orderPlacedAmount}\nStatus: ${orderPlacedStatus}\n\nYou can track your order anytime from your dashboard. Thank you for ordering with Pharmacy MVP.`,
+                emailMessage: `Your order has been placed successfully.\n\nOrder ID: ${updatedOrder.orderId}\nAmount: USD ${orderPlacedAmount}\nStatus: ${orderPlacedStatus}\n\nYou can track your order anytime from your dashboard. Thank you for ordering with Pharmacy MVP.`,
                 emailHtml: buildOrderPlacedEmailHtml({
                     orderId: updatedOrder.orderId,
                     amount: updatedOrder.totalPrice,
@@ -1675,6 +1959,7 @@ const reviewStoreApprovalRequest = async (req, res) => {
                 licenceDocument: request.licenceDocument,
                 status: 'Active',
             });
+            await createOrUpdateStoreAdminUser({ store: createdStore, plainPassword });
             await StoreApprovalRequest.findByIdAndDelete(id);
         }
 
@@ -1772,6 +2057,11 @@ const updateStoreStatus = async (req, res) => {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Store not found' });
         }
 
+        await User.updateMany(
+            { linkedStoreId: updatedStore._id, roleCode: { $in: [ROLE_CODES.STORE_ADMIN, ROLE_CODES.PHARMACIST, ROLE_CODES.OPERATOR] } },
+            { $set: { isActive: status === 'Active' } },
+        );
+
         return res.status(StatusCodes.OK).json({
             success: true,
             message: `Store status updated to ${status}`,
@@ -1817,6 +2107,7 @@ const addStore = async (req, res) => {
         });
 
         await newStore.save();
+        await createOrUpdateStoreAdminUser({ store: newStore, plainPassword });
 
         runInBackground('store-manual-create-email', async () => {
             await sendDirectEmailSafely({
@@ -1886,8 +2177,15 @@ const getMyPrescriptionRequests = async (req, res) => {
 
 const getStorePrescriptionRequests = async (req, res) => {
     try {
+        const storeId = req.user?._id;
+        const permissionCheck = await enforceRolePermission({ req, storeId, requiredPermission: "prescription.view" });
+        if (!permissionCheck.allowed) {
+            return res.status(permissionCheck.statusCode).json({ message: permissionCheck.message });
+        }
+
         const prescriptions = await PrescriptionRequest.find({})
             .populate('userId', 'name email mobile')
+            .populate('reviewedByStaffId', 'firstName lastName role')
             .sort({ status: 1, createdAt: -1 });
 
         return res.status(StatusCodes.OK).json({ prescriptions });
@@ -1903,6 +2201,17 @@ const reviewPrescriptionRequest = async (req, res) => {
         const { id } = req.params;
         const { status, reviewNotes = '' } = req.body;
 
+        const permissionCheck = await enforceRolePermission({ req, storeId, requiredPermission: "prescription.review" });
+        if (!permissionCheck.allowed) {
+            return res.status(permissionCheck.statusCode).json({ message: permissionCheck.message });
+        }
+
+        const reviewerName = permissionCheck.isOwner
+            ? (req.user?.storeName || req.user?.ownerName || 'Store Admin')
+            : `${permissionCheck.staffMember?.firstName || ''} ${permissionCheck.staffMember?.lastName || ''}`.trim();
+        const reviewerRole = permissionCheck.isOwner ? 'Store Admin' : (permissionCheck.staffMember?.role || 'Pharmacist');
+        const reviewerStaffId = permissionCheck.isOwner ? null : permissionCheck.staffMember?._id;
+
         if (!['approved', 'rejected'].includes(status)) {
             return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid status value' });
         }
@@ -1914,6 +2223,9 @@ const reviewPrescriptionRequest = async (req, res) => {
                     status,
                     reviewNotes,
                     reviewedByStoreId: storeId,
+                    reviewedByStaffId: reviewerStaffId,
+                    reviewedByName: reviewerName,
+                    reviewedByRole: reviewerRole,
                     reviewedAt: new Date(),
                 },
             },
@@ -1966,7 +2278,7 @@ const getStoreStaffMembers = async (req, res) => {
 
 const getStoreOrders = async (req, res) => {
     try {
-        const storeId = req.user?._id;
+        const storeId = req.user?.storeId || req.user?._id;
         const orders = await Order.find({ storeId })
             .populate('userId', 'name firstName middleName lastName email mobile')
             .sort({ createdAt: -1 });
@@ -2041,7 +2353,10 @@ const updateOrderTrackingStatus = async (req, res) => {
 const getMyOrders = async (req, res) => {
     try {
         const userId = req.user?._id;
-        const orders = await Order.find({ userId }).sort({ createdAt: -1 }).lean();
+        const orders = await Order.find({ userId })
+            .populate('storeId', 'storeName email mobile address city state pincode')
+            .sort({ createdAt: -1 })
+            .lean();
 
         return res.status(StatusCodes.OK).json({ orders: orders.map(mapPatientOrder) });
     } catch (error) {
@@ -2060,10 +2375,12 @@ const getOrderById = async (req, res) => {
         }
 
         if (req.user?.role === 'Store') {
-            query.storeId = req.user?._id;
+            query.storeId = req.user?.storeId || req.user?._id;
         }
 
-        const order = await Order.findOne(query).lean();
+        const order = await Order.findOne(query)
+            .populate('storeId', 'storeName email mobile address city state pincode')
+            .lean();
 
         if (!order) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Order not found' });
@@ -2087,22 +2404,53 @@ const createStoreStaffMember = async (req, res) => {
             email,
             contact,
             address = '',
+            loginPassword = '',
         } = req.body;
 
-        if (!firstName || !lastName || !email || !contact) {
-            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Please provide first name, last name, email, and contact' });
+        if (!firstName || !lastName || !email || !contact || !loginPassword) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Please provide first name, last name, email, contact, and login password' });
         }
+
+        const normalizedRole = normalizeStaffRole(role);
+        const roleCode = normalizedRoleToCode(normalizedRole);
+        const passwordHash = await bcrypt.hash(String(loginPassword), 10);
 
         const staffMember = await StoreStaff.create({
             storeId,
             firstName,
             middleName,
             lastName,
-            role: normalizeStaffRole(role),
+            role: normalizedRole,
             email,
             contact,
             address,
             status: 'Active',
+        });
+
+        const existingLinkedUser = await User.findOne({ email }).lean();
+        if (existingLinkedUser) {
+            await StoreStaff.findByIdAndDelete(staffMember._id);
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'This email already exists in user accounts. Use a unique email for staff login.' });
+        }
+
+        await User.create({
+            name: `${firstName} ${lastName} (${email})`.trim(),
+            firstName,
+            middleName,
+            lastName,
+            email,
+            mobile: contact,
+            contact,
+            address: address || 'NA',
+            password: passwordHash,
+            hash_password: passwordHash,
+            roleCode,
+            roleLabel: roleCodeToLabel(roleCode),
+            linkedStoreId: storeId,
+            linkedStaffId: staffMember._id,
+            isActive: true,
+            storeName: req.user?.storeName || '',
+            ownerName: req.user?.ownerName || '',
         });
 
         return res.status(StatusCodes.CREATED).json({
@@ -2130,11 +2478,15 @@ const updateStoreStaffMember = async (req, res) => {
             email,
             contact,
             address = '',
+            loginPassword = '',
         } = req.body;
 
         if (!firstName || !lastName || !email || !contact) {
             return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Please provide first name, last name, email, and contact' });
         }
+
+        const normalizedRole = normalizeStaffRole(role);
+        const roleCode = normalizedRoleToCode(normalizedRole);
 
         const staffMember = await StoreStaff.findOneAndUpdate(
             { _id: id, storeId },
@@ -2143,7 +2495,7 @@ const updateStoreStaffMember = async (req, res) => {
                     firstName,
                     middleName,
                     lastName,
-                    role: normalizeStaffRole(role),
+                    role: normalizedRole,
                     email,
                     contact,
                     address,
@@ -2155,6 +2507,32 @@ const updateStoreStaffMember = async (req, res) => {
         if (!staffMember) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Staff member not found' });
         }
+
+        const userUpdatePayload = {
+            name: `${firstName} ${lastName} (${email})`.trim(),
+            firstName,
+            middleName,
+            lastName,
+            email,
+            mobile: contact,
+            address: address || 'NA',
+            roleCode,
+            roleLabel: roleCodeToLabel(roleCode),
+            linkedStoreId: storeId,
+            linkedStaffId: staffMember._id,
+        };
+
+        if (loginPassword) {
+            const passwordHash = await bcrypt.hash(String(loginPassword), 10);
+            userUpdatePayload.password = passwordHash;
+            userUpdatePayload.hash_password = passwordHash;
+        }
+
+        await User.findOneAndUpdate(
+            { linkedStaffId: staffMember._id, linkedStoreId: storeId },
+            { $set: userUpdatePayload },
+            { new: true, upsert: false },
+        );
 
         return res.status(StatusCodes.OK).json({
             message: 'Staff member updated successfully',
@@ -2189,6 +2567,12 @@ const updateStoreStaffStatus = async (req, res) => {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Staff member not found' });
         }
 
+        await User.findOneAndUpdate(
+            { linkedStaffId: staffMember._id, linkedStoreId: storeId },
+            { $set: { isActive: status === 'Active' } },
+            { new: false },
+        );
+
         return res.status(StatusCodes.OK).json({
             message: `Staff member ${status.toLowerCase()} successfully`,
             staffMember,
@@ -2208,6 +2592,8 @@ const deleteStoreStaffMember = async (req, res) => {
         if (!deletedStaff) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Staff member not found' });
         }
+
+        await User.deleteOne({ linkedStaffId: deletedStaff._id, linkedStoreId: storeId });
 
         return res.status(StatusCodes.OK).json({
             message: 'Staff member removed successfully',
@@ -2500,6 +2886,9 @@ const reuploadPrescriptionRequest = async (req, res) => {
         existingRequest.status = 'pending';
         existingRequest.reviewNotes = '';
         existingRequest.reviewedByStoreId = null;
+        existingRequest.reviewedByStaffId = null;
+        existingRequest.reviewedByName = '';
+        existingRequest.reviewedByRole = '';
         existingRequest.reviewedAt = null;
 
         await existingRequest.save();
@@ -2836,13 +3225,8 @@ const getMedicinesByStore = async (req, res) => {
       return res.status(400).json({ success: false, message: "Store ID is required" });
     }
 
-    // Try store-scoped medicines first
-    let medicines = await Pharmacy.find({ storeId });
-
-    // Fallback: existing medicines may not have storeId yet — return all
-    if (medicines.length === 0) {
-      medicines = await Pharmacy.find({});
-    }
+        // Strictly return medicines for the selected store only.
+        const medicines = await Pharmacy.find({ storeId });
 
     res.status(200).json({
       success: true,
@@ -3849,7 +4233,7 @@ const getStoreRolePermissions = async (req, res) => {
             });
         }
 
-        const normalizedRole = normalizeStaffRole(role || "Pharmacist");
+        const normalizedRole = normalizeStaffRole(role || "Store Admin");
         return res.status(StatusCodes.OK).json({
             role: normalizedRole,
             permissions: getRolePermissions(normalizedRole),
@@ -4986,13 +5370,20 @@ const deletePromotionalCampaign = async (req, res) => {
 const getPublicPromotionalCampaigns = async (req, res) => {
     try {
         const limit = Math.min(Math.max(Number(req.query?.limit) || 8, 1), 20);
+        const storeId = req.query?.storeId;
         const now = new Date();
 
-        const campaigns = await PromotionalCampaign.find({
+        const query = {
             status: "Active",
             validFrom: { $lte: now },
             $or: [{ validTill: { $exists: false } }, { validTill: null }, { validTill: { $gte: now } }],
-        })
+        };
+
+        if (storeId) {
+            query.storeId = storeId;
+        }
+
+        const campaigns = await PromotionalCampaign.find(query)
             .select("campaignType title description couponCode discountType discountValue minOrderAmount maxDiscountAmount autoApply targetScope targetValue bulkDiscount validFrom validTill storeId")
             .sort({ createdAt: -1 })
             .limit(limit)
@@ -5031,19 +5422,10 @@ const validatePublicCoupon = async (req, res) => {
             $or: [{ validTill: { $exists: false } }, { validTill: null }, { validTill: { $gte: now } }],
         };
 
-        let campaign = null;
-
-        if (storeId) {
-            campaign = await PromotionalCampaign.findOne({ ...baseQuery, storeId })
-                .select("campaignType title couponCode discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount storeId validFrom validTill status")
-                .lean();
-        }
-
-        if (!campaign) {
-            campaign = await PromotionalCampaign.findOne(baseQuery)
-                .select("campaignType title couponCode discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount storeId validFrom validTill status")
-                .lean();
-        }
+        const couponQuery = storeId ? { ...baseQuery, storeId } : baseQuery;
+        const campaign = await PromotionalCampaign.findOne(couponQuery)
+            .select("campaignType title couponCode discountType discountValue minOrderAmount maxDiscountAmount usageLimit usedCount storeId validFrom validTill status")
+            .lean();
 
         if (!campaign) {
             return res.status(StatusCodes.OK).json({ valid: false, message: "Coupon is invalid or inactive" });
@@ -5091,7 +5473,7 @@ const validatePublicCoupon = async (req, res) => {
 };
 
 module.exports = {
-    signUp, signIn, fetchData, adminsignIn, AdminfetchData, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences,
+    signUp, signIn, forgotPassword, fetchData, adminsignIn, AdminfetchData, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences,
     uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest,
     getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv,
     getMedicinesByStore,
@@ -5113,7 +5495,7 @@ module.exports = {
 };
 
 const STAFF_ROLE_PERMISSIONS = {
-    Manager: [
+    "Store Admin": [
         "staff.manage",
         "attendance.manage",
         "attendance.view",
@@ -5131,32 +5513,45 @@ const STAFF_ROLE_PERMISSIONS = {
         "finance.tax.view",
         "marketing.manage",
         "marketing.view",
+        "inventory.manage",
+        "orders.manage",
+        "prescription.view",
+        "prescription.review",
+        "queries.view",
+        "queries.answer",
+        "reviews.view",
+        "profile.view",
     ],
     Pharmacist: [
-        "attendance.view",
-        "performance.view",
-        "training.view",
-        "training.manage",
-        "compliance.view",
-        "compliance.manage",
-        "finance.invoices.generate",
-        "finance.invoices.view",
-        "finance.profit.view",
-        "marketing.view",
+        "inventory.view",
+        "inventory.manage",
+        "orders.view",
+        "orders.manage",
+        "prescription.view",
+        "prescription.review",
+        "queries.view",
+        "queries.answer",
+        "reviews.view",
+        "profile.view",
     ],
-    Technician: [
-        "attendance.view",
-        "training.view",
-        "compliance.view",
-        "finance.invoices.view",
-        "marketing.view",
+    Operator: [
+        "inventory.view",
+        "inventory.manage",
+        "orders.view",
+        "orders.manage",
+        "prescription.view",
+        "prescription.review",
+        "queries.view",
+        "queries.answer",
+        "reviews.view",
+        "profile.view",
     ],
 };
 
 const normalizeStaffRole = (role = "") => {
     const normalized = String(role || "").trim().toLowerCase();
-    if (normalized === "manager") return "Manager";
-    if (normalized === "technician") return "Technician";
+    if (normalized === "store admin" || normalized === "storeadmin" || normalized === "manager") return "Store Admin";
+    if (normalized === "operator" || normalized === "technician") return "Operator";
     return "Pharmacist";
 };
 

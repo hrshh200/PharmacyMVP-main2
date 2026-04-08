@@ -25,6 +25,7 @@ const Login = () => {
 
   const [type, setType] = useState("password");
   const [userType, setUserType] = useState("patient");
+  const [selectedStoreRoleCode, setSelectedStoreRoleCode] = useState(4);
 
   const [formData, setFormData] = useState({
     email: "",
@@ -55,6 +56,10 @@ const Login = () => {
       ...formData,
       userType,
     };
+
+    if (userType === 'store') {
+      loginPayload.selectedStoreRoleCode = Number(selectedStoreRoleCode);
+    }
 
     // Handle admin login
     if (formData.email === 'admin@admin.com' && formData.password === 'admin') {
@@ -181,6 +186,9 @@ const Login = () => {
                     <p className="mt-1 text-sm font-bold text-slate-900">
                       {userType === "store" ? "Store Operations" : "Patient Care"}
                     </p>
+                    {userType === "store" && (
+                      <p className="mt-1 text-xs text-slate-500">Role: {selectedStoreRoleCode === 4 ? 'Store Admin' : selectedStoreRoleCode === 2 ? 'Pharmacist' : 'Operator'}</p>
+                    )}
                   </div>
                 </div>
 
@@ -231,6 +239,20 @@ const Login = () => {
                 </div>
 
                 <form onSubmit={submitHandler} className="space-y-5">
+                  {userType === "store" && (
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Store Role</label>
+                      <select
+                        value={selectedStoreRoleCode}
+                        onChange={(event) => setSelectedStoreRoleCode(Number(event.target.value))}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-slate-800 outline-none transition-all focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100"
+                      >
+                        <option value={4}>Store Admin</option>
+                        <option value={2}>Pharmacist</option>
+                        <option value={3}>Operator</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">
                       Email Address

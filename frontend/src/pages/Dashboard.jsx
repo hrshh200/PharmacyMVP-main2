@@ -698,6 +698,7 @@ const Dashboard = () => {
             const response = await axios.post(`${baseURL}/additemstocart`, {
                 id: userData._id,
                 items: selectedItems,
+                storeId: null,
             });
 
             const currentOrderId = response.data.orderId || response.data.order?.orderId;

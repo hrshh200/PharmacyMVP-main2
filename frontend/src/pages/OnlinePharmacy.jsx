@@ -324,6 +324,13 @@ function OnlinePharmacy() {
     }
   }, [stores, selectedStore]);
 
+  // Store selectedStore in localStorage
+  useEffect(() => {
+    if (selectedStore) {
+      localStorage.setItem('medVisionSelectedStoreId', selectedStore);
+    }
+  }, [selectedStore]);
+
 
   // Load user prescriptions on component mount
   useEffect(() => {

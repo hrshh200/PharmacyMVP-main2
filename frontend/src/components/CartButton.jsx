@@ -26,6 +26,9 @@ const CartButton = ({ openOnMount = false, appliedCampaign = null, selectedStore
     }
   });
   const navigate = useNavigate();
+  
+  // Use passed selectedStoreId or retrieve from localStorage
+  const storeId = selectedStoreId || (typeof localStorage !== 'undefined' ? localStorage.getItem('medVisionSelectedStoreId') : null);
 
   const subtotalAmount = cartItems.reduce((total, item) => total + item.price * item.quantity, 0);
   const calculateCampaignDiscount = (campaign, subtotal) => {
@@ -68,13 +71,18 @@ const CartButton = ({ openOnMount = false, appliedCampaign = null, selectedStore
       return;
     }
 
+    if (!storeId) {
+      setCouponFeedback({ type: 'error', message: 'Please select a store before applying coupon' });
+      return;
+    }
+
     try {
       setCouponValidationLoading(true);
       setCouponFeedback(null);
       const response = await axios.post(`${baseURL}/marketing/campaigns/validate-coupon`, {
         couponCode: normalizedCode,
         subtotal: subtotalAmount,
-        storeId: selectedStoreId || activeCampaign?.storeId || undefined,
+        storeId,
       });
 
       if (response.data?.valid) {
@@ -181,21 +189,37 @@ const CartButton = ({ openOnMount = false, appliedCampaign = null, selectedStore
 
   useEffect(() => {
     if (appliedCampaign) {
-      setActiveCampaign(appliedCampaign);
-      setCouponInput(appliedCampaign.couponCode || '');
-      localStorage.setItem(appliedCampaignStorageKey, JSON.stringify(appliedCampaign));
+      const appliedStoreId = String(appliedCampaign.storeId || '');
+      const selectedStore = String(storeId || '');
+      if (!selectedStore || !appliedStoreId || appliedStoreId === selectedStore) {
+        setActiveCampaign(appliedCampaign);
+        setCouponInput(appliedCampaign.couponCode || '');
+        localStorage.setItem(appliedCampaignStorageKey, JSON.stringify(appliedCampaign));
+      } else {
+        setActiveCampaign(null);
+        setCouponInput('');
+        localStorage.removeItem(appliedCampaignStorageKey);
+      }
       return;
     }
 
     try {
       const storedCampaign = JSON.parse(localStorage.getItem(appliedCampaignStorageKey) || 'null');
-      setActiveCampaign(storedCampaign);
-      setCouponInput(storedCampaign?.couponCode || '');
+      const campaignStoreId = String(storedCampaign?.storeId || '');
+      const selectedStore = String(storeId || '');
+      if (!storedCampaign || !selectedStore || !campaignStoreId || campaignStoreId === selectedStore) {
+        setActiveCampaign(storedCampaign);
+        setCouponInput(storedCampaign?.couponCode || '');
+      } else {
+        setActiveCampaign(null);
+        setCouponInput('');
+        localStorage.removeItem(appliedCampaignStorageKey);
+      }
     } catch {
       setActiveCampaign(null);
       setCouponInput('');
     }
-  }, [appliedCampaign]);
+  }, [appliedCampaign, storeId]);
 
   useEffect(() => {
     if (openOnMount && userData?._id && !hasAutoOpened) {
@@ -207,7 +231,7 @@ const CartButton = ({ openOnMount = false, appliedCampaign = null, selectedStore
   useEffect(() => {
     if (!activeCampaign?.couponCode || subtotalAmount <= 0) return;
     validateAndApplyCoupon(activeCampaign.couponCode);
-  }, [activeCampaign?.couponCode, subtotalAmount, selectedStoreId]);
+  }, [activeCampaign?.couponCode, subtotalAmount, storeId]);
   
 
 
@@ -285,6 +309,7 @@ const CartButton = ({ openOnMount = false, appliedCampaign = null, selectedStore
       const response = await axios.post(`${baseURL}/additemstocart`, {
         id: userData?._id, // Passing user ID if required
         items: cartItems, // Passing the array
+        storeId: storeId,
       });
   
       console.log(response);

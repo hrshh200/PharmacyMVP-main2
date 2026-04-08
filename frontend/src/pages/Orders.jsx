@@ -153,6 +153,9 @@ const Orders = () => {
 
                       <p className="text-sm text-gray-700">
                         <span className="font-medium">Customer:</span> {userdata.name || 'N/A'}
+                                             <p className="text-sm text-gray-700">
+                                               <span className="font-medium">🏪 Store:</span> {order.storeName || 'N/A'}
+                                             </p>
                       </p>
                       <p className="text-sm text-gray-700 inline-flex items-center gap-1.5">
                         <CreditCard className="w-4 h-4 text-gray-500" />

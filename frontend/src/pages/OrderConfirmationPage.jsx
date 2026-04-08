@@ -155,6 +155,17 @@ export function OrderConfirmationPage() {
               ${userdata?.city ? userdata.city + ', ' : ''}${userdata?.state || ''}<br/>
               ${userdata?.pincode || ''}
             </p>
+                     <!-- Store Details -->
+                     <div style="padding: 20px; background-color: #fff5e6; border-radius: 8px; margin-bottom: 30px; border-left: 4px solid #f59e0b;">
+                       <p style="font-size: 14px; color: #d97706; text-transform: uppercase; font-weight: bold; margin: 0 0 10px 0;">🏪 Store Details</p>
+                       <p style="font-size: 14px; color: #333; line-height: 1.6; margin: 0;">
+                         <strong>${latestOrder.storeName || 'N/A'}</strong><br/>
+                         ${latestOrder.storeAddress || 'Not provided'}<br/>
+                         ${latestOrder.storeCity ? latestOrder.storeCity + ', ' : ''}${latestOrder.storeState || ''} ${latestOrder.storePincode || ''}<br/>
+                         <strong>Phone:</strong> ${latestOrder.storeMobile || 'N/A'}<br/>
+                         <strong>Email:</strong> ${latestOrder.storeEmail || 'N/A'}
+                       </p>
+                     </div>
           </div>
 
           <!-- Items Table -->
@@ -339,6 +350,18 @@ export function OrderConfirmationPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Confirmation Email</p>
                 <p className="text-base font-semibold text-slate-900 mt-1 break-all">{userdata?.email || 'Not available'}</p>
+                             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
+                               <p className="text-xs uppercase tracking-wide text-amber-700 font-bold">🏪 Store Details</p>
+                               <p className="text-base font-semibold text-amber-900 mt-2">{latestOrder?.storeName || 'N/A'}</p>
+                               <p className="text-sm text-amber-800 mt-1">
+                                 {latestOrder?.storeAddress || 'Not provided'}<br/>
+                                 {latestOrder?.storeCity ? latestOrder.storeCity + ', ' : ''}{latestOrder?.storeState || ''} {latestOrder?.storePincode || ''}
+                               </p>
+                               <p className="text-sm text-amber-800 mt-2">
+                                 <strong>Phone:</strong> {latestOrder?.storeMobile || 'N/A'}<br/>
+                                 <strong>Email:</strong> {latestOrder?.storeEmail || 'N/A'}
+                               </p>
+                             </div>
               </div>
             </div>
 
