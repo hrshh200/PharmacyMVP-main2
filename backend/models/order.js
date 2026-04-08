@@ -15,6 +15,8 @@ const orderSchema = new mongoose.Schema(
     orderId: { type: String, required: true, unique: true, index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     storeId: { type: mongoose.Schema.Types.ObjectId, ref: "Store", required: true, index: true },
+    sourceType: { type: String, enum: ["cart", "prescription"], default: "cart", index: true },
+    sourcePrescriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "PrescriptionRequest", default: null, index: true },
     items: { type: [orderItemSchema], default: [] },
     totalPrice: { type: Number, required: true },
     payment: { type: String, required: true, default: "Pending" },

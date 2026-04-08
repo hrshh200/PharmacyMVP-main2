@@ -522,36 +522,51 @@ const Navbar = () => {
             </div>
             {showLogoutModal && (
                 <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl animate-fadeIn">
+                        <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-5 text-white">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="rounded-2xl bg-white/20 p-2.5">
+                                        <LogOut className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-bold">Confirm Logout</h2>
+                                        <p className="mt-0.5 text-xs text-cyan-100">Secure session confirmation</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowLogoutModal(false)}
+                                    className="rounded-full bg-white/20 p-1.5 text-white/90 hover:bg-white/30"
+                                    aria-label="Close logout popup"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
+                        </div>
 
-                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-[90%] max-w-md animate-fadeIn">
+                        <div className="px-6 py-5">
+                            <p className="text-sm text-slate-600">
+                                Are you sure you want to logout? You will need to sign in again to access your account.
+                            </p>
 
-                        <h2 className="text-xl font-bold text-gray-800 mb-2">
-                            Confirm Logout
-                        </h2>
-
-                        <p className="text-gray-600 mb-6">
-                            Are you sure you want to logout? You will need to log in again to access your account.
-                        </p>
-
-                        <div className="flex justify-end gap-3">
-
-                            {/* Cancel */}
-                            <button
-                                onClick={() => setShowLogoutModal(false)}
-                                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-100 transition">
-                                Cancel
-                            </button>
-
-                            {/* Confirm */}
-                            <button
-                                onClick={() => {
-                                    setShowLogoutModal(false);
-                                    handleLogout();
-                                }}
-                                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition shadow-md">
-                                Yes, Logout
-                            </button>
-
+                            <div className="mt-6 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                                <button
+                                    onClick={() => setShowLogoutModal(false)}
+                                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+                                >
+                                    Stay Logged In
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowLogoutModal(false);
+                                        handleLogout();
+                                    }}
+                                    className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 transition shadow-md"
+                                >
+                                    Yes, Logout
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

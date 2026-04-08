@@ -587,6 +587,62 @@ const resolveOrderStoreId = async (preferredStoreId) => {
     return fallbackStore?._id || null;
 };
 
+const normalizeApprovedItems = (items) => {
+    const rows = Array.isArray(items) ? items : [];
+
+    return rows
+        .map((item, index) => {
+            const name = String(item?.name || '').trim();
+            const quantity = Number(item?.quantity);
+            const unitPrice = Number(item?.unitPrice);
+            const lineTotal = Number.isFinite(Number(item?.lineTotal))
+                ? Number(item?.lineTotal)
+                : Number((quantity || 0) * (unitPrice || 0));
+
+            if (!name || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
+                return null;
+            }
+
+            return {
+                medicineId: String(item?.medicineId || item?.id || index + 1),
+                name,
+                quantity,
+                unit: String(item?.unit || '').trim(),
+                unitPrice,
+                lineTotal: Number.isFinite(lineTotal) && lineTotal >= 0 ? lineTotal : 0,
+                substitution: {
+                    isSubstituted: Boolean(item?.substitution?.isSubstituted),
+                    originalName: String(item?.substitution?.originalName || '').trim(),
+                    reason: String(item?.substitution?.reason || '').trim(),
+                },
+                instructions: String(item?.instructions || '').trim(),
+            };
+        })
+        .filter(Boolean);
+};
+
+const normalizeApprovalTotals = (totals, approvedItems) => {
+    const subtotalFromItems = approvedItems.reduce((sum, item) => sum + (Number(item.lineTotal) || 0), 0);
+    const requested = totals && typeof totals === 'object' ? totals : {};
+
+    const subtotal = Number.isFinite(Number(requested.subtotal)) ? Number(requested.subtotal) : subtotalFromItems;
+    const discount = Number.isFinite(Number(requested.discount)) ? Math.max(0, Number(requested.discount)) : 0;
+    const tax = Number.isFinite(Number(requested.tax)) ? Math.max(0, Number(requested.tax)) : 0;
+    const deliveryCharge = Number.isFinite(Number(requested.deliveryCharge)) ? Math.max(0, Number(requested.deliveryCharge)) : 0;
+    const grandTotal = Number.isFinite(Number(requested.grandTotal))
+        ? Math.max(0, Number(requested.grandTotal))
+        : Math.max(0, subtotal - discount + tax + deliveryCharge);
+
+    return {
+        subtotal,
+        discount,
+        tax,
+        deliveryCharge,
+        grandTotal,
+        currency: String(requested.currency || 'INR').toUpperCase(),
+    };
+};
+
 const ROLE_CODES = {
     PATIENT: 1,
     PHARMACIST: 2,
@@ -2322,7 +2378,7 @@ const reviewPrescriptionRequest = async (req, res) => {
     try {
         const storeId = req.user?._id;
         const { id } = req.params;
-        const { status, reviewNotes = '' } = req.body;
+        const { status, reviewNotes = '', approvedItems, totals, quoteExpiresAt } = req.body;
 
         const permissionCheck = await enforceRolePermission({ req, storeId, requiredPermission: "prescription.review" });
         if (!permissionCheck.allowed) {
@@ -2339,6 +2395,25 @@ const reviewPrescriptionRequest = async (req, res) => {
             return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid status value' });
         }
 
+        const normalizedApprovedItems = normalizeApprovedItems(approvedItems);
+        if (status === 'approved' && !normalizedApprovedItems.length) {
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                message: 'approvedItems is required when approving a prescription',
+            });
+        }
+
+        const approvalSnapshot = status === 'approved'
+            ? {
+                approvedItems: normalizedApprovedItems,
+                totals: normalizeApprovalTotals(totals, normalizedApprovedItems),
+                quoteExpiresAt: quoteExpiresAt ? new Date(quoteExpiresAt) : null,
+            }
+            : null;
+
+        if (approvalSnapshot?.quoteExpiresAt && Number.isNaN(approvalSnapshot.quoteExpiresAt.getTime())) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid quoteExpiresAt value' });
+        }
+
         const updated = await PrescriptionRequest.findByIdAndUpdate(
             id,
             {
@@ -2350,6 +2425,9 @@ const reviewPrescriptionRequest = async (req, res) => {
                     reviewedByName: reviewerName,
                     reviewedByRole: reviewerRole,
                     reviewedAt: new Date(),
+                    approvalSnapshot,
+                    orderedOrderId: '',
+                    orderedAt: null,
                 },
             },
             { new: true },
@@ -2385,6 +2463,168 @@ const reviewPrescriptionRequest = async (req, res) => {
     } catch (error) {
         console.error('reviewPrescriptionRequest error:', error);
         return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to review prescription request' });
+    }
+};
+
+const getPrescriptionCheckout = async (req, res) => {
+    try {
+        const userId = req.user?._id;
+        const { id } = req.params;
+
+        const prescription = await PrescriptionRequest.findOne({ _id: id, userId })
+            .populate('reviewedByStoreId', 'storeName email mobile')
+            .lean();
+
+        if (!prescription) {
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'Prescription request not found' });
+        }
+
+        const snapshot = prescription.approvalSnapshot || null;
+        const now = Date.now();
+        const expiresAt = snapshot?.quoteExpiresAt ? new Date(snapshot.quoteExpiresAt).getTime() : null;
+        const quoteExpired = Boolean(expiresAt && Number.isFinite(expiresAt) && expiresAt < now);
+
+        let canPlaceOrder = true;
+        let cannotPlaceReason = '';
+
+        if (prescription.status !== 'approved') {
+            canPlaceOrder = false;
+            cannotPlaceReason = 'PRESCRIPTION_NOT_APPROVED';
+        } else if (!snapshot?.approvedItems?.length) {
+            canPlaceOrder = false;
+            cannotPlaceReason = 'MISSING_APPROVAL_SNAPSHOT';
+        } else if (prescription.orderedOrderId) {
+            canPlaceOrder = false;
+            cannotPlaceReason = 'ALREADY_ORDERED';
+        } else if (quoteExpired) {
+            canPlaceOrder = false;
+            cannotPlaceReason = 'QUOTE_EXPIRED';
+        }
+
+        return res.status(StatusCodes.OK).json({
+            prescriptionId: prescription._id,
+            status: prescription.status,
+            reviewedAt: prescription.reviewedAt,
+            reviewNotes: prescription.reviewNotes || '',
+            store: prescription.reviewedByStoreId ? {
+                storeId: prescription.reviewedByStoreId._id,
+                storeName: prescription.reviewedByStoreId.storeName || '',
+                email: prescription.reviewedByStoreId.email || '',
+                mobile: prescription.reviewedByStoreId.mobile || '',
+            } : null,
+            approvedItems: snapshot?.approvedItems || [],
+            totals: snapshot?.totals || null,
+            quoteExpiresAt: snapshot?.quoteExpiresAt || null,
+            canPlaceOrder,
+            cannotPlaceReason,
+            existingOrderId: prescription.orderedOrderId || '',
+        });
+    } catch (error) {
+        console.error('getPrescriptionCheckout error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to load prescription checkout' });
+    }
+};
+
+const placePrescriptionOrder = async (req, res) => {
+    try {
+        const userId = req.user?._id;
+        const { id } = req.params;
+        const { address, deliveryType = 'delivery', paymentMethod = 'Pending' } = req.body;
+
+        if (!address || !String(address).trim()) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Address is required' });
+        }
+
+        if (!['pickup', 'delivery'].includes(String(deliveryType))) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid deliveryType' });
+        }
+
+        const prescription = await PrescriptionRequest.findOne({ _id: id, userId });
+        if (!prescription) {
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'Prescription request not found' });
+        }
+
+        if (prescription.orderedOrderId) {
+            return res.status(StatusCodes.CONFLICT).json({
+                message: 'Prescription already converted to order',
+                code: 'ALREADY_ORDERED',
+                existingOrderId: prescription.orderedOrderId,
+            });
+        }
+
+        if (prescription.status !== 'approved') {
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                message: 'Prescription is not approved yet',
+                code: 'PRESCRIPTION_NOT_APPROVED',
+            });
+        }
+
+        const snapshot = prescription.approvalSnapshot;
+        if (!snapshot?.approvedItems?.length) {
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                message: 'Approved prescription snapshot not found',
+                code: 'MISSING_APPROVAL_SNAPSHOT',
+            });
+        }
+
+        if (snapshot.quoteExpiresAt && new Date(snapshot.quoteExpiresAt).getTime() < Date.now()) {
+            return res.status(StatusCodes.CONFLICT).json({
+                message: 'Approved quote expired, please request re-review',
+                code: 'QUOTE_EXPIRED',
+            });
+        }
+
+        const resolvedStoreId = await resolveOrderStoreId(prescription.reviewedByStoreId);
+        if (!resolvedStoreId) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'No store available to process this order' });
+        }
+
+        const orderId = generateOrderId();
+        const orderItems = snapshot.approvedItems.map((item, index) => ({
+            id: String(item.medicineId || index + 1),
+            name: item.name,
+            quantity: Number(item.quantity) || 1,
+            price: Number(item.unitPrice) || 0,
+        }));
+
+        const totalPrice = Number(snapshot?.totals?.grandTotal);
+        const resolvedTotalPrice = Number.isFinite(totalPrice)
+            ? totalPrice
+            : orderItems.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0), 0);
+
+        const createdOrder = await Order.create({
+            orderId,
+            userId,
+            storeId: resolvedStoreId,
+            sourceType: 'prescription',
+            sourcePrescriptionId: prescription._id,
+            items: orderItems,
+            totalPrice: resolvedTotalPrice,
+            payment: String(paymentMethod || 'Pending'),
+            address: String(address).trim(),
+            status: 'Booked',
+            deliveryType,
+            trackingStatus: 'Order Placed',
+        });
+
+        prescription.status = 'ordered';
+        prescription.orderedOrderId = createdOrder.orderId;
+        prescription.orderedAt = new Date();
+        await prescription.save();
+
+        return res.status(StatusCodes.CREATED).json({
+            message: 'Order placed successfully from approved prescription',
+            order: mapPatientOrder(createdOrder),
+            prescription: {
+                id: prescription._id,
+                status: prescription.status,
+                orderedOrderId: prescription.orderedOrderId,
+                orderedAt: prescription.orderedAt,
+            },
+        });
+    } catch (error) {
+        console.error('placePrescriptionOrder error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to place prescription order' });
     }
 };
 
@@ -5632,7 +5872,7 @@ const validatePublicCoupon = async (req, res) => {
 
 module.exports = {
     signUp, signIn, forgotPassword, fetchData, updateStoreProfile, adminsignIn, AdminfetchData, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences,
-    uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest,
+    uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest, getPrescriptionCheckout, placePrescriptionOrder,
     getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv,
     getMedicinesByStore,
     getStoreInventory, createStoreInventoryMedicine, updateStoreInventoryMedicine, deleteStoreInventoryMedicine,

@@ -127,7 +127,6 @@ const StoreDashboard = () => {
   };
   const orderFilterConfig = [
     { key: 'all', label: 'All Orders' },
-    { key: 'booked', label: 'Booked' },
     { key: 'packed', label: 'Packed' },
     { key: 'outForDelivery', label: 'Out for Delivery' },
     { key: 'pickup', label: 'Pick Up' },
@@ -301,11 +300,67 @@ const StoreDashboard = () => {
       });
     }
   };
+  const mainContentRef = useRef(null);
+
+  const handleSelectSection = (sectionKey) => {
+    setSelectedSection(sectionKey);
+
+    requestAnimationFrame(() => {
+      mainContentRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  };
 
   const [prescriptions, setPrescriptions] = useState([]);
   const [selectedPrescriptionId, setSelectedPrescriptionId] = useState(null);
   const [prescriptionsLoading, setPrescriptionsLoading] = useState(false);
+  const [prescriptionStatusFilter, setPrescriptionStatusFilter] = useState('all');
+  const [showPendingReviewWorkspace, setShowPendingReviewWorkspace] = useState(false);
+  const [prescriptionReviewerFilter, setPrescriptionReviewerFilter] = useState('all');
+  const [reviewerSearchQuery, setReviewerSearchQuery] = useState('');
+  const createEmptyApprovalItem = () => ({
+    medicineId: '',
+    name: '',
+    quantity: '1',
+    unit: 'tablet',
+    unitPrice: '0',
+    instructions: '',
+    substitutionReason: '',
+  });
+  const [approvalItems, setApprovalItems] = useState([createEmptyApprovalItem()]);
+  const [approvalReviewNotes, setApprovalReviewNotes] = useState('');
+  const [approvalTotalsDraft, setApprovalTotalsDraft] = useState({
+    subtotal: '0',
+    discount: '0',
+    tax: '0',
+    deliveryCharge: '0',
+    grandTotal: '0',
+    currency: 'INR',
+    quoteExpiresInHours: '24',
+  });
   const selectedPrescription = prescriptions.find((item) => item._id === selectedPrescriptionId);
+  const selectedPrescriptionStatus = String(selectedPrescription?.status || 'pending').toLowerCase();
+  const selectedPendingPrescription = selectedPrescriptionStatus === 'pending' ? selectedPrescription : null;
+  const reviewerSearchNormalized = String(reviewerSearchQuery || '').trim().toLowerCase();
+  const filteredPrescriptions = prescriptions.filter((item) => {
+    const status = String(item.status || 'pending').toLowerCase();
+    if (prescriptionStatusFilter !== 'all' && status !== prescriptionStatusFilter) {
+      return false;
+    }
+
+    const reviewerName = String(item.reviewedByName || 'Store Admin').trim();
+    if (prescriptionReviewerFilter !== 'all' && reviewerName !== prescriptionReviewerFilter) {
+      return false;
+    }
+
+    if (!reviewerSearchNormalized) {
+      return true;
+    }
+
+    return reviewerName.toLowerCase().includes(reviewerSearchNormalized);
+  });
   const selectedPrescriptionFileUrl = resolveFileUrl(selectedPrescription?.filePath);
   const [patientsCsvFile, setPatientsCsvFile] = useState(null);
   const [csvUploadMessage, setCsvUploadMessage] = useState('');
@@ -323,6 +378,33 @@ const StoreDashboard = () => {
   const [reviewReplyText, setReviewReplyText] = useState('');
   const [reviewReplySubmitting, setReviewReplySubmitting] = useState(false);
   const selectedStoreReview = storeReviews.find((item) => item._id === selectedReviewId);
+
+  const approvalCalculatedSubtotal = approvalItems.reduce((sum, item) => {
+    const qty = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    return sum + (qty * unitPrice);
+  }, 0);
+  const approvalItemErrors = approvalItems.map((item) => {
+    const name = String(item?.name || '').trim();
+    const quantity = Number(item?.quantity);
+    const unitPrice = Number(item?.unitPrice);
+
+    return {
+      name: !name,
+      quantity: !Number.isFinite(quantity) || quantity <= 0,
+      unitPrice: !Number.isFinite(unitPrice) || unitPrice < 0,
+    };
+  });
+  const hasApprovalItemErrors = approvalItemErrors.some((row) => row.name || row.quantity || row.unitPrice);
+  const canApprovePrescription = Boolean(selectedPendingPrescription)
+    && approvalItems.length > 0
+    && !hasApprovalItemErrors;
+  const approvalSubtotal = Math.max(0, Number(approvalTotalsDraft.subtotal) || 0);
+  const approvalDiscount = Math.max(0, Number(approvalTotalsDraft.discount) || 0);
+  const approvalTax = Math.max(0, Number(approvalTotalsDraft.tax) || 0);
+  const approvalDeliveryCharge = Math.max(0, Number(approvalTotalsDraft.deliveryCharge) || 0);
+  const approvalCalculatedGrandTotal = Math.max(0, approvalCalculatedSubtotal - approvalDiscount + approvalTax + approvalDeliveryCharge);
+  const approvalGrandTotal = Math.max(0, Number(approvalTotalsDraft.grandTotal) || 0);
 
   const [staffPermissions, setStaffPermissions] = useState([]);
   const [staffOpsLoading, setStaffOpsLoading] = useState(false);
@@ -1191,14 +1273,72 @@ const StoreDashboard = () => {
     if (!token) return;
 
     try {
+      const normalizedStatus = String(status || '').toLowerCase();
+      const payload = {
+        status: normalizedStatus,
+        reviewNotes: approvalReviewNotes.trim(),
+      };
+
+      if (normalizedStatus === 'approved') {
+        if (hasApprovalItemErrors) {
+          toast.error('Please fix highlighted medicine fields before approving.');
+          return;
+        }
+
+        const normalizedItems = approvalItems
+          .map((item, index) => {
+            const name = String(item.name || '').trim();
+            const quantity = Math.max(1, Number(item.quantity) || 0);
+            const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+            if (!name) return null;
+
+            return {
+              medicineId: String(item.medicineId || index + 1),
+              name,
+              quantity,
+              unit: String(item.unit || '').trim(),
+              unitPrice,
+              lineTotal: Number((quantity * unitPrice).toFixed(2)),
+              substitution: {
+                isSubstituted: Boolean(String(item.substitutionReason || '').trim()),
+                originalName: '',
+                reason: String(item.substitutionReason || '').trim(),
+              },
+              instructions: String(item.instructions || '').trim(),
+            };
+          })
+          .filter(Boolean);
+
+        if (!normalizedItems.length) {
+          toast.error('Add at least one medicine with name to approve prescription.');
+          return;
+        }
+
+        const quoteHours = Math.max(1, Number(approvalTotalsDraft.quoteExpiresInHours) || 24);
+        const quoteExpiresAt = new Date(Date.now() + quoteHours * 60 * 60 * 1000).toISOString();
+
+        payload.approvedItems = normalizedItems;
+        payload.totals = {
+          subtotal: Number(approvalSubtotal.toFixed(2)),
+          discount: Number(approvalDiscount.toFixed(2)),
+          tax: Number(approvalTax.toFixed(2)),
+          deliveryCharge: Number(approvalDeliveryCharge.toFixed(2)),
+          grandTotal: Number(approvalGrandTotal.toFixed(2)),
+          currency: String(approvalTotalsDraft.currency || 'INR').toUpperCase(),
+        };
+        payload.quoteExpiresAt = quoteExpiresAt;
+      }
+
       await axios.patch(
         `${baseURL}/prescriptions/${id}/review`,
-        { status: status.toLowerCase() },
+        payload,
         { headers: { Authorization: `Bearer ${token}` } },
       );
+      toast.success(`Prescription ${normalizedStatus}`);
       await loadStorePrescriptions();
     } catch (error) {
       console.error('Failed to review prescription:', error.message);
+      toast.error(error.response?.data?.message || 'Failed to review prescription');
     }
   };
 
@@ -1231,6 +1371,7 @@ const StoreDashboard = () => {
       acc.total += 1;
       if (status === 'approved') acc.approved += 1;
       else if (status === 'rejected') acc.rejected += 1;
+      else if (status === 'ordered') acc.ordered += 1;
       else acc.pending += 1;
 
       if (status === 'approved' || status === 'rejected') {
@@ -1245,10 +1386,21 @@ const StoreDashboard = () => {
 
       return acc;
     },
-    { total: 0, approved: 0, rejected: 0, pending: 0, byReviewer: {} }
+    { total: 0, approved: 0, rejected: 0, pending: 0, ordered: 0, byReviewer: {} }
   );
 
   const prescriptionReviewerStats = Object.values(prescriptionSummary.byReviewer).sort((a, b) => b.total - a.total);
+  const reviewerFilterOptions = Array.from(
+    new Set(
+      [
+        'Store Admin',
+        ...(staffMembers || []).map((staff) => `${staff.firstName || ''} ${staff.lastName || ''}`.trim()).filter(Boolean),
+        ...prescriptions
+          .filter((item) => ['approved', 'rejected', 'ordered'].includes(String(item.status || '').toLowerCase()))
+          .map((item) => String(item.reviewedByName || 'Store Admin').trim() || 'Store Admin'),
+      ]
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
   const handleStaffChange = (e) => {
     const { name, value } = e.target;
@@ -1685,6 +1837,7 @@ const StoreDashboard = () => {
     }
     if (selectedSection === 'prescription' && allowedSectionKeys.includes('prescription')) {
       loadStorePrescriptions();
+      loadStoreStaffMembers();
     }
     if (selectedSection === 'queries' && allowedSectionKeys.includes('queries')) {
       loadStoreQueries();
@@ -1721,6 +1874,99 @@ const StoreDashboard = () => {
       setSelectedOrderId(filteredOrders[0].id);
     }
   }, [selectedSection, selectedOrderFilter, filteredOrders, selectedOrderId]);
+
+  useEffect(() => {
+    if (selectedSection !== 'prescription') return;
+
+    if (!selectedPrescription) {
+      setApprovalItems([createEmptyApprovalItem()]);
+      setApprovalReviewNotes('');
+      setApprovalTotalsDraft({
+        subtotal: '0',
+        discount: '0',
+        tax: '0',
+        deliveryCharge: '0',
+        grandTotal: '0',
+        currency: 'INR',
+        quoteExpiresInHours: '24',
+      });
+      return;
+    }
+
+    const snapshot = selectedPrescription.approvalSnapshot;
+    if (snapshot?.approvedItems?.length) {
+      setApprovalItems(
+        snapshot.approvedItems.map((item) => ({
+          medicineId: String(item.medicineId || ''),
+          name: String(item.name || ''),
+          quantity: String(item.quantity || '1'),
+          unit: String(item.unit || 'tablet'),
+          unitPrice: String(item.unitPrice || '0'),
+          instructions: String(item.instructions || ''),
+          substitutionReason: String(item?.substitution?.reason || ''),
+        }))
+      );
+    } else {
+      setApprovalItems([createEmptyApprovalItem()]);
+    }
+
+    setApprovalReviewNotes(String(selectedPrescription.reviewNotes || ''));
+    setApprovalTotalsDraft({
+      subtotal: String(snapshot?.totals?.subtotal ?? '0'),
+      discount: String(snapshot?.totals?.discount ?? '0'),
+      tax: String(snapshot?.totals?.tax ?? '0'),
+      deliveryCharge: String(snapshot?.totals?.deliveryCharge ?? '0'),
+      grandTotal: String(snapshot?.totals?.grandTotal ?? '0'),
+      currency: String(snapshot?.totals?.currency || 'INR'),
+      quoteExpiresInHours: '24',
+    });
+  }, [selectedSection, selectedPrescriptionId]);
+
+  useEffect(() => {
+    if (selectedSection !== 'prescription') return;
+    if (prescriptionsLoading) return;
+
+    if (!filteredPrescriptions.length) {
+      setSelectedPrescriptionId(null);
+      return;
+    }
+
+    const hasSelectedInFilter = filteredPrescriptions.some((item) => item._id === selectedPrescriptionId);
+    if (!hasSelectedInFilter) {
+      setSelectedPrescriptionId(filteredPrescriptions[0]._id);
+    }
+  }, [selectedSection, prescriptionStatusFilter, prescriptionsLoading, prescriptions, filteredPrescriptions, selectedPrescriptionId]);
+
+  useEffect(() => {
+    setShowPendingReviewWorkspace(false);
+  }, [prescriptionStatusFilter, selectedSection]);
+
+  const handleApprovalItemChange = (index, field, value) => {
+    setApprovalItems((prev) =>
+      prev.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleAddApprovalItem = () => {
+    setApprovalItems((prev) => [...prev, createEmptyApprovalItem()]);
+  };
+
+  const handleRemoveApprovalItem = (index) => {
+    setApprovalItems((prev) => {
+      const next = prev.filter((_, itemIndex) => itemIndex !== index);
+      return next.length ? next : [createEmptyApprovalItem()];
+    });
+  };
+
+  const handleAutoFillApprovalTotals = () => {
+    const computedSubtotal = Number(approvalCalculatedSubtotal.toFixed(2));
+    const computedGrandTotal = Number((computedSubtotal - approvalDiscount + approvalTax + approvalDeliveryCharge).toFixed(2));
+    setApprovalTotalsDraft((prev) => ({
+      ...prev,
+      subtotal: String(computedSubtotal),
+      grandTotal: String(Math.max(0, computedGrandTotal)),
+    }));
+  };
 
   const handleSubmitAnswer = async (queryId) => {
     const answer = answerText.trim();
@@ -1863,17 +2109,21 @@ const StoreDashboard = () => {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[260px_1fr]">
-          <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-8">
-              <p className="text-sm text-slate-500">Access Role</p>
-              <h2 className="text-2xl font-semibold text-slate-900 mt-2">Control Panel</h2>
-              <p className="mt-2 text-sm text-slate-600">Select a section to manage your store.</p>
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                {dashboardAccessRole}
+        <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
+          <aside className="relative overflow-hidden rounded-3xl border border-slate-700 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-6 text-white shadow-xl">
+            <div className="pointer-events-none absolute -right-16 -top-12 h-40 w-40 rounded-full bg-cyan-400/20 blur-3xl" />
+            <div className="pointer-events-none absolute -left-14 bottom-6 h-32 w-32 rounded-full bg-blue-500/20 blur-3xl" />
+
+            <div className="relative mb-7 rounded-2xl border border-white/15 bg-white/5 p-4 backdrop-blur-sm">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-200">Store Navigation</p>
+              <h2 className="mt-2 text-2xl font-bold">Control Panel</h2>
+              <p className="mt-2 text-sm text-slate-300">Select a section to manage operations.</p>
+              <div className="mt-3 inline-flex items-center rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">
+                Access: {dashboardAccessRole}
               </div>
             </div>
-            <div className="space-y-3">
+
+            <div className="relative space-y-2.5">
               {visibleSectionConfig.map((section) => {
                 const Icon = section.icon;
                 const active = selectedSection === section.key;
@@ -1881,18 +2131,20 @@ const StoreDashboard = () => {
                   <button
                     key={section.key}
                     type="button"
-                    onClick={() => setSelectedSection(section.key)}
-                    className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                    onClick={() => handleSelectSection(section.key)}
+                    className={`group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-900/30' : 'bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white'}`}
                   >
-                    <Icon className={`${active ? 'text-white' : 'text-blue-600'}`} size={20} />
-                    <span className="font-medium">{section.label}</span>
+                    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl transition ${active ? 'bg-white/20' : 'bg-white/10 group-hover:bg-white/20'}`}>
+                      <Icon className={`${active ? 'text-white' : 'text-cyan-200 group-hover:text-white'}`} size={18} />
+                    </span>
+                    <span className="font-semibold tracking-wide">{section.label}</span>
                   </button>
                 );
               })}
             </div>
           </aside>
 
-          <main className="space-y-6">
+          <main ref={mainContentRef} className="space-y-6">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -3583,19 +3835,53 @@ const StoreDashboard = () => {
                     </div>
                   </div>
                 </div>
-                <div className="mb-6 flex flex-wrap gap-2">
+                <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                   {orderFilterConfig.map((filter) => {
                     const active = selectedOrderFilter === filter.key;
                     const count = orderStatusCounts[filter.key] || 0;
+                    const palette = filter.key === 'delivered'
+                      ? {
+                        active: 'border-emerald-500 bg-emerald-100 text-emerald-900',
+                        idle: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300',
+                        badgeActive: 'bg-emerald-200 text-emerald-900',
+                        badgeIdle: 'bg-white text-emerald-700',
+                      }
+                      : filter.key === 'outForDelivery'
+                        ? {
+                          active: 'border-blue-500 bg-blue-100 text-blue-900',
+                          idle: 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300',
+                          badgeActive: 'bg-blue-200 text-blue-900',
+                          badgeIdle: 'bg-white text-blue-700',
+                        }
+                        : filter.key === 'packed'
+                          ? {
+                            active: 'border-violet-500 bg-violet-100 text-violet-900',
+                            idle: 'border-violet-200 bg-violet-50 text-violet-700 hover:border-violet-300',
+                            badgeActive: 'bg-violet-200 text-violet-900',
+                            badgeIdle: 'bg-white text-violet-700',
+                          }
+                          : filter.key === 'pickup'
+                            ? {
+                              active: 'border-cyan-500 bg-cyan-100 text-cyan-900',
+                              idle: 'border-cyan-200 bg-cyan-50 text-cyan-700 hover:border-cyan-300',
+                              badgeActive: 'bg-cyan-200 text-cyan-900',
+                              badgeIdle: 'bg-white text-cyan-700',
+                            }
+                            : {
+                              active: 'border-slate-500 bg-slate-100 text-slate-900',
+                              idle: 'border-slate-300 bg-white text-slate-700 hover:border-slate-400',
+                              badgeActive: 'bg-slate-200 text-slate-900',
+                              badgeIdle: 'bg-slate-100 text-slate-600',
+                            };
                     return (
                       <button
                         key={filter.key}
                         type="button"
                         onClick={() => setSelectedOrderFilter(filter.key)}
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${active ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}
+                        className={`inline-flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition ${active ? palette.active : palette.idle}`}
                       >
                         <span>{filter.label}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] ${active ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] ${active ? palette.badgeActive : palette.badgeIdle}`}>
                           {count}
                         </span>
                       </button>
@@ -3746,59 +4032,126 @@ const StoreDashboard = () => {
                       <p className="text-sm text-slate-500">Review attachments and approve or reject each request.</p>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={loadStorePrescriptions}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                  >
+                    Refresh List
+                  </button>
                 </div>
-                <div className="mb-6 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-                  <div className="grid gap-3 sm:grid-cols-4">
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-xs text-slate-500">Received</p>
-                      <p className="text-2xl font-bold text-slate-900">{prescriptionSummary.total}</p>
-                    </div>
-                    <div className="rounded-2xl bg-amber-50 p-4">
-                      <p className="text-xs text-amber-700">Pending</p>
-                      <p className="text-2xl font-bold text-amber-900">{prescriptionSummary.pending}</p>
-                    </div>
-                    <div className="rounded-2xl bg-emerald-50 p-4">
-                      <p className="text-xs text-emerald-700">Approved</p>
-                      <p className="text-2xl font-bold text-emerald-900">{prescriptionSummary.approved}</p>
-                    </div>
-                    <div className="rounded-2xl bg-rose-50 p-4">
-                      <p className="text-xs text-rose-700">Rejected</p>
-                      <p className="text-2xl font-bold text-rose-900">{prescriptionSummary.rejected}</p>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-sm font-semibold text-slate-900">Approved / Rejected By</p>
-                    <div className="mt-3 max-h-28 space-y-2 overflow-y-auto">
-                      {prescriptionReviewerStats.length === 0 ? (
-                        <p className="text-xs text-slate-500">No reviewed prescriptions yet.</p>
-                      ) : prescriptionReviewerStats.map((reviewer) => (
-                        <div key={reviewer.name} className="rounded-xl bg-slate-50 p-2 text-xs text-slate-700">
-                          <span className="font-semibold text-slate-900">{reviewer.name}</span> ({reviewer.role})
-                          <span className="ml-2 text-emerald-700">Approved: {reviewer.approved}</span>
-                          <span className="ml-2 text-rose-700">Rejected: {reviewer.rejected}</span>
-                        </div>
+                <div className="mb-6 grid gap-3 sm:grid-cols-5">
+                  {[
+                    {
+                      key: 'all',
+                      label: 'Received',
+                      count: prescriptionSummary.total,
+                      active: 'ring-2 ring-slate-300 border-slate-400',
+                      idle: 'border-slate-200',
+                      card: 'bg-slate-50',
+                      labelColor: 'text-slate-500',
+                      valueColor: 'text-slate-900',
+                    },
+                    {
+                      key: 'pending',
+                      label: 'Pending',
+                      count: prescriptionSummary.pending,
+                      active: 'ring-2 ring-amber-300 border-amber-400',
+                      idle: 'border-amber-200',
+                      card: 'bg-amber-50',
+                      labelColor: 'text-amber-700',
+                      valueColor: 'text-amber-900',
+                    },
+                    {
+                      key: 'approved',
+                      label: 'Approved',
+                      count: prescriptionSummary.approved,
+                      active: 'ring-2 ring-emerald-300 border-emerald-400',
+                      idle: 'border-emerald-200',
+                      card: 'bg-emerald-50',
+                      labelColor: 'text-emerald-700',
+                      valueColor: 'text-emerald-900',
+                    },
+                    {
+                      key: 'rejected',
+                      label: 'Rejected',
+                      count: prescriptionSummary.rejected,
+                      active: 'ring-2 ring-rose-300 border-rose-400',
+                      idle: 'border-rose-200',
+                      card: 'bg-rose-50',
+                      labelColor: 'text-rose-700',
+                      valueColor: 'text-rose-900',
+                    },
+                    {
+                      key: 'ordered',
+                      label: 'Ordered',
+                      count: prescriptionSummary.ordered,
+                      active: 'ring-2 ring-cyan-300 border-cyan-400',
+                      idle: 'border-cyan-200',
+                      card: 'bg-cyan-50',
+                      labelColor: 'text-cyan-700',
+                      valueColor: 'text-cyan-900',
+                    },
+                  ].map((tile) => {
+                    const active = prescriptionStatusFilter === tile.key;
+                    return (
+                      <button
+                        key={tile.key}
+                        type="button"
+                        onClick={() => setPrescriptionStatusFilter(tile.key)}
+                        className={`rounded-2xl border p-4 text-left transition ${tile.card} ${active ? tile.active : tile.idle}`}
+                      >
+                        <p className={`text-xs ${tile.labelColor}`}>{tile.label}</p>
+                        <p className={`text-2xl font-bold ${tile.valueColor}`}>{tile.count}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mb-5 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Filter By Staff Member</label>
+                    <select
+                      value={prescriptionReviewerFilter}
+                      onChange={(event) => setPrescriptionReviewerFilter(event.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                    >
+                      <option value="all">All Staff Members</option>
+                      {reviewerFilterOptions.map((name) => (
+                        <option key={name} value={name}>{name}</option>
                       ))}
-                    </div>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Search Reviewer</label>
+                    <input
+                      value={reviewerSearchQuery}
+                      onChange={(event) => setReviewerSearchQuery(event.target.value)}
+                      placeholder="Type reviewer name"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                    />
                   </div>
                 </div>
-                <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+                <div className="space-y-4">
                   <div className="space-y-3">
                     {prescriptionsLoading ? (
                       <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
                         Loading prescription requests...
                       </div>
-                    ) : prescriptions.length === 0 ? (
+                    ) : filteredPrescriptions.length === 0 ? (
                       <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                        No prescription requests yet.
+                        {prescriptions.length === 0 ? 'No prescription requests yet.' : 'No prescriptions in this status.'}
                       </div>
-                    ) : prescriptions.map((prescription, index) => {
+                    ) : filteredPrescriptions.map((prescription, index) => {
                       const active = prescription._id === selectedPrescriptionId;
                       const normalizedStatus = String(prescription.status || 'pending').toLowerCase();
                       return (
                         <button
                           key={prescription._id}
                           type="button"
-                          onClick={() => setSelectedPrescriptionId(prescription._id)}
+                          onClick={() => {
+                            setSelectedPrescriptionId(prescription._id);
+                            setShowPendingReviewWorkspace(normalizedStatus === 'pending');
+                          }}
                           className={`w-full rounded-3xl border p-4 text-left transition ${active ? 'border-yellow-500 bg-yellow-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                         >
                           <div className="flex items-center justify-between gap-3">
@@ -3826,41 +4179,41 @@ const StoreDashboard = () => {
                       );
                     })}
                   </div>
+                  {selectedPendingPrescription && showPendingReviewWorkspace && (
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                    {selectedPrescription ? (
                       <>
                         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                           <div>
                             <p className="text-sm font-medium text-slate-500">Review Prescription</p>
-                            <h3 className="text-2xl font-semibold text-slate-900">{selectedPrescription.userId?.name || 'Unknown User'}</h3>
-                            <p className="text-sm text-slate-500">{selectedPrescription.userId?.email || 'No email available'}</p>
-                            {(String(selectedPrescription.status || '').toLowerCase() === 'approved' || String(selectedPrescription.status || '').toLowerCase() === 'rejected') && (
+                            <h3 className="text-2xl font-semibold text-slate-900">{selectedPendingPrescription.userId?.name || 'Unknown User'}</h3>
+                            <p className="text-sm text-slate-500">{selectedPendingPrescription.userId?.email || 'No email available'}</p>
+                            {(String(selectedPendingPrescription.status || '').toLowerCase() === 'approved' || String(selectedPendingPrescription.status || '').toLowerCase() === 'rejected') && (
                               <p className="text-xs text-slate-500 mt-1">
-                                Reviewed by {selectedPrescription.reviewedByName || 'Store Admin'} ({selectedPrescription.reviewedByRole || 'Store Admin'})
-                                {selectedPrescription.reviewedAt ? ` on ${new Date(selectedPrescription.reviewedAt).toLocaleString()}` : ''}
+                                Reviewed by {selectedPendingPrescription.reviewedByName || 'Store Admin'} ({selectedPendingPrescription.reviewedByRole || 'Store Admin'})
+                                {selectedPendingPrescription.reviewedAt ? ` on ${new Date(selectedPendingPrescription.reviewedAt).toLocaleString()}` : ''}
                               </p>
                             )}
                           </div>
-                          <span className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${selectedPrescription.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : selectedPrescription.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {selectedPrescription.status?.charAt(0).toUpperCase() + selectedPrescription.status?.slice(1)}
+                          <span className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${selectedPendingPrescription.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : selectedPendingPrescription.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {selectedPendingPrescription.status?.charAt(0).toUpperCase() + selectedPendingPrescription.status?.slice(1)}
                           </span>
                         </div>
-                        {selectedPrescriptionFileUrl && String(selectedPrescription.status || '').toLowerCase() === 'pending' && (
+                        {selectedPrescriptionFileUrl && String(selectedPendingPrescription.status || '').toLowerCase() === 'pending' && (
                           <div className="rounded-3xl border border-slate-200 bg-white p-5">
                             <div className="flex items-center justify-between gap-3">
                               <div>
                                 <p className="text-sm font-medium text-slate-800">Attachment</p>
-                                <p className="text-sm text-slate-500">{selectedPrescription.fileName}</p>
+                                <p className="text-sm text-slate-500">{selectedPendingPrescription.fileName}</p>
                               </div>
                             </div>
                             <div className="mt-4">
-                              {String(selectedPrescription.mimeType || '').startsWith('image/') ? (
+                              {String(selectedPendingPrescription.mimeType || '').startsWith('image/') ? (
                                 <img
                                   src={selectedPrescriptionFileUrl}
-                                  alt={selectedPrescription.fileName}
+                                  alt={selectedPendingPrescription.fileName}
                                   className="w-full rounded-3xl border border-slate-200 object-contain"
                                 />
-                              ) : selectedPrescription.mimeType === 'application/pdf' ? (
+                              ) : selectedPendingPrescription.mimeType === 'application/pdf' ? (
                                 <div className="overflow-hidden rounded-3xl border border-slate-200">
                                   <object data={selectedPrescriptionFileUrl} type="application/pdf" width="100%" height="320">
                                     <div className="p-4 text-sm text-slate-500">
@@ -3879,33 +4232,214 @@ const StoreDashboard = () => {
                             </div>
                           </div>
                         )}
-                        {String(selectedPrescription.status || '').toLowerCase() === 'pending' ? (
-                          <div className="mt-6 flex flex-wrap gap-3">
-                            <button
-                              type="button"
-                              onClick={() => updatePrescriptionStatus(selectedPrescription._id, 'Approved')}
-                              disabled={selectedPrescription.status === 'approved'}
-                              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700 transition"
-                            >
-                              <CheckCircle2 size={18} /> Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updatePrescriptionStatus(selectedPrescription._id, 'Rejected')}
-                              disabled={selectedPrescription.status === 'rejected'}
-                              className="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 transition"
-                            >
-                              <XCircle size={18} /> Reject
-                            </button>
+                          <div className="mt-6 space-y-4 rounded-3xl border border-slate-200 bg-white p-5">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">Decision Workspace: Pending Prescription</p>
+                              <button
+                                type="button"
+                                onClick={handleAddApprovalItem}
+                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+                              >
+                                <Plus size={14} /> Add Medicine
+                              </button>
+                            </div>
+
+                            <div className="space-y-3">
+                              {approvalItems.map((item, index) => (
+                                <div key={`approval-item-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                  <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+                                    <input
+                                      value={item.name}
+                                      onChange={(event) => handleApprovalItemChange(index, 'name', event.target.value)}
+                                      placeholder="Medicine name"
+                                      className={`rounded-lg border px-3 py-2 text-sm ${approvalItemErrors[index]?.name ? 'border-rose-400 bg-rose-50' : 'border-slate-300'}`}
+                                    />
+                                    <input
+                                      value={item.quantity}
+                                      onChange={(event) => handleApprovalItemChange(index, 'quantity', event.target.value)}
+                                      placeholder="Qty"
+                                      type="number"
+                                      min="1"
+                                      className={`rounded-lg border px-3 py-2 text-sm ${approvalItemErrors[index]?.quantity ? 'border-rose-400 bg-rose-50' : 'border-slate-300'}`}
+                                    />
+                                    <input
+                                      value={item.unitPrice}
+                                      onChange={(event) => handleApprovalItemChange(index, 'unitPrice', event.target.value)}
+                                      placeholder="Unit price"
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      className={`rounded-lg border px-3 py-2 text-sm ${approvalItemErrors[index]?.unitPrice ? 'border-rose-400 bg-rose-50' : 'border-slate-300'}`}
+                                    />
+                                    <input
+                                      value={item.unit}
+                                      onChange={(event) => handleApprovalItemChange(index, 'unit', event.target.value)}
+                                      placeholder="Unit"
+                                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    />
+                                  </div>
+                                  {(approvalItemErrors[index]?.name || approvalItemErrors[index]?.quantity || approvalItemErrors[index]?.unitPrice) && (
+                                    <p className="mt-2 text-xs font-medium text-rose-700">
+                                      {approvalItemErrors[index]?.name ? 'Medicine name is required. ' : ''}
+                                      {approvalItemErrors[index]?.quantity ? 'Quantity must be greater than 0. ' : ''}
+                                      {approvalItemErrors[index]?.unitPrice ? 'Unit price cannot be negative.' : ''}
+                                    </p>
+                                  )}
+                                  <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">
+                                    <input
+                                      value={item.instructions}
+                                      onChange={(event) => handleApprovalItemChange(index, 'instructions', event.target.value)}
+                                      placeholder="Instructions (optional)"
+                                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                    />
+                                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                                      <input
+                                        value={item.substitutionReason}
+                                        onChange={(event) => handleApprovalItemChange(index, 'substitutionReason', event.target.value)}
+                                        placeholder="Substitution reason (optional)"
+                                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveApprovalItem(index)}
+                                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"
+                                      >
+                                        <Trash2 size={14} /> Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Subtotal</label>
+                                <input
+                                  value={approvalTotalsDraft.subtotal}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, subtotal: event.target.value }))}
+                                  placeholder="Subtotal"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Discount</label>
+                                <input
+                                  value={approvalTotalsDraft.discount}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, discount: event.target.value }))}
+                                  placeholder="Discount"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Tax</label>
+                                <input
+                                  value={approvalTotalsDraft.tax}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, tax: event.target.value }))}
+                                  placeholder="Tax"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Delivery Charge</label>
+                                <input
+                                  value={approvalTotalsDraft.deliveryCharge}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, deliveryCharge: event.target.value }))}
+                                  placeholder="Delivery charge"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Total</label>
+                                <input
+                                  value={approvalTotalsDraft.grandTotal}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, grandTotal: event.target.value }))}
+                                  placeholder="Total"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div className="flex items-end">
+                                <button
+                                  type="button"
+                                  onClick={handleAutoFillApprovalTotals}
+                                  className="w-full rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100"
+                                >
+                                  Auto Fill From Medicines
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Currency</label>
+                                <input
+                                  value={approvalTotalsDraft.currency}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, currency: event.target.value }))}
+                                  placeholder="Currency"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Quote Expiry (Hours)</label>
+                                <input
+                                  value={approvalTotalsDraft.quoteExpiresInHours}
+                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, quoteExpiresInHours: event.target.value }))}
+                                  placeholder="Quote expiry hours"
+                                  type="number"
+                                  min="1"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                Calculated Total: {approvalCalculatedGrandTotal.toFixed(2)} {String(approvalTotalsDraft.currency || 'INR').toUpperCase()}
+                              </div>
+                            </div>
+
+                            <textarea
+                              value={approvalReviewNotes}
+                              onChange={(event) => setApprovalReviewNotes(event.target.value)}
+                              rows={3}
+                              placeholder="Review notes (shown to patient)"
+                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            />
+
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={() => updatePrescriptionStatus(selectedPendingPrescription._id, 'Approved')}
+                                disabled={selectedPendingPrescription.status === 'approved' || !canApprovePrescription}
+                                className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <CheckCircle2 size={18} /> Approve
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => updatePrescriptionStatus(selectedPendingPrescription._id, 'Rejected')}
+                                disabled={selectedPendingPrescription.status === 'rejected'}
+                                className="inline-flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 transition"
+                              >
+                                <XCircle size={18} /> Reject
+                              </button>
+                            </div>
                           </div>
-                        ) : null}
                       </>
-                    ) : (
-                      <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-                        Select a prescription request from the left to review the attachment.
-                      </div>
-                    )}
                   </div>
+                  )}
                 </div>
               </div>
             )}

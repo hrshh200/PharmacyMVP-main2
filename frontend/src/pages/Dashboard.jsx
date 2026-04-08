@@ -131,6 +131,9 @@ const Dashboard = () => {
     };
     const [isRefillModalOpen, setIsRefillModalOpen] = useState(false);
     const [placingPrescriptionOrder, setPlacingPrescriptionOrder] = useState(false);
+    const [prescriptionCheckoutLoading, setPrescriptionCheckoutLoading] = useState(false);
+    const [prescriptionOrderAddress, setPrescriptionOrderAddress] = useState('');
+    const [prescriptionOrderPayment, setPrescriptionOrderPayment] = useState('COD');
     const [healthTrackers, setHealthTrackers] = useState([]);
     const [expiryReminders, setExpiryReminders] = useState([]);
     const [medicalTimeline, setMedicalTimeline] = useState([]);
@@ -150,6 +153,8 @@ const Dashboard = () => {
         prescriptionId: null,
         prescriptionTitle: '',
         items: [],
+        totals: null,
+        quoteExpiresAt: null,
     });
 
     const querySubjects = [
@@ -585,11 +590,12 @@ const Dashboard = () => {
 
     const isApprovedPrescription = (status) => {
         const value = String(status || '').toLowerCase();
-        return value === 'approved' || value === 'active';
+        return value === 'approved' || value === 'active' || value === 'ordered';
     };
 
     const getPrescriptionStatusText = (status) => {
         const value = String(status || '').toLowerCase();
+        if (value === 'ordered') return 'Order has been placed from this prescription.';
         if (value === 'approved' || value === 'active') return 'Approved by pharmacy';
         if (value === 'rejected') return 'Your prescription is rejected. Please re-upload a clearer file.';
         return 'Our Pharmacists are carefully reviewing your Prescription. Stay in Touch!';
@@ -615,93 +621,115 @@ const Dashboard = () => {
         }
     };
 
-    const getPrescriptionItems = (prescription) => {
-        const prescriptionKey = prescription._id || prescription.id || 'rx';
-        if (Array.isArray(prescription?.medicines) && prescription.medicines.length > 0) {
-            return prescription.medicines
-                .map((item, index) => ({
-                    id: `${prescriptionKey}-${index}`,
-                    name: item.name || item.medicineName || `Medicine ${index + 1}`,
-                    dosage: item.dosage || prescription.dosage || '-',
-                    quantity: Math.max(1, Number(item.quantity || item.prescribedQuantity || 1)),
-                    price: Number(item.price || 0),
-                }))
-                .filter((item) => item.name);
-        }
-
-        if (prescription?.medicineName) {
-            return [{
-                id: `${prescriptionKey}-0`,
-                name: prescription.medicineName,
-                dosage: prescription.dosage || '-',
-                quantity: Math.max(1, Number(prescription.quantity || 1)),
-                price: Number(prescription.price || 0),
-            }];
-        }
-
-        return [];
+    const getCannotPlaceReasonText = (reason) => {
+        const code = String(reason || '').toUpperCase();
+        if (code === 'ALREADY_ORDERED') return 'This prescription is already converted into an order.';
+        if (code === 'QUOTE_EXPIRED') return 'The approved quote has expired. Please ask store to review again.';
+        if (code === 'PRESCRIPTION_NOT_APPROVED') return 'Prescription is not approved yet.';
+        if (code === 'MISSING_APPROVAL_SNAPSHOT') return 'Approved medicines are unavailable for checkout.';
+        return 'This prescription cannot be ordered right now.';
     };
 
-    const handleStartPrescriptionOrder = (prescription) => {
-        const draftItems = getPrescriptionItems(prescription);
-        if (!draftItems.length) return;
+    const handleStartPrescriptionOrder = async (prescription) => {
+        const token = localStorage.getItem('medVisionToken');
+        const prescriptionId = prescription?._id || prescription?.id;
 
-        setRefillDraft({
-            prescriptionId: prescription._id || prescription.id,
-            prescriptionTitle: prescription.medicineName || prescription.fileName || 'Prescription Refill',
-            items: draftItems,
-        });
-        setIsRefillModalOpen(true);
-    };
-
-    const updateRefillQuantity = (itemId, type) => {
-        setRefillDraft((prev) => ({
-            ...prev,
-            items: prev.items
-                .map((item) => {
-                    if (item.id !== itemId) return item;
-                    if (type === 'increase') {
-                        return { ...item, quantity: item.quantity + 1 };
-                    }
-                    return { ...item, quantity: Math.max(1, item.quantity - 1) };
-                }),
-        }));
-    };
-
-    const removeRefillItem = (itemId) => {
-        setRefillDraft((prev) => ({
-            ...prev,
-            items: prev.items.filter((item) => item.id !== itemId),
-        }));
-    };
-
-    const handlePlacePrescriptionOrder = async () => {
-        if (!userData?._id) {
+        if (!token || !prescriptionId) {
             alert('Please login again to continue checkout.');
             return;
         }
 
-        const selectedItems = refillDraft.items
-            .filter((item) => item.quantity > 0)
-            .map((item, index) => ({
-                id: index + 1,
-                name: item.name,
-                price: Number(item.price || 0),
-                quantity: Number(item.quantity || 1),
-            }));
+        try {
+            setPrescriptionCheckoutLoading(true);
+            const response = await axios.get(`${baseURL}/prescriptions/${prescriptionId}/checkout`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
 
-        if (!selectedItems.length) {
-            alert('Please keep at least one medicine to place the order.');
+            const checkout = response.data || {};
+            if (!checkout.canPlaceOrder) {
+                const reasonText = getCannotPlaceReasonText(checkout.cannotPlaceReason);
+                const extra = checkout.existingOrderId ? ` Existing Order: ${checkout.existingOrderId}` : '';
+                alert(`${reasonText}${extra}`);
+                return;
+            }
+
+            const draftItems = Array.isArray(checkout.approvedItems)
+                ? checkout.approvedItems.map((item, index) => ({
+                    id: String(item.medicineId || index + 1),
+                    name: item.name || `Medicine ${index + 1}`,
+                    dosage: item.instructions || item.unit || '-',
+                    quantity: Math.max(1, Number(item.quantity || 1)),
+                    price: Number(item.unitPrice || 0),
+                    lineTotal: Number(item.lineTotal || 0),
+                    isSubstituted: Boolean(item?.substitution?.isSubstituted),
+                    substitutionReason: String(item?.substitution?.reason || ''),
+                }))
+                : [];
+
+            if (!draftItems.length) {
+                alert('Approved medicines are unavailable for this prescription.');
+                return;
+            }
+
+            const fallbackAddress = [
+                userData?.address,
+                userData?.city,
+                userData?.state,
+                userData?.pincode,
+            ]
+                .map((part) => String(part || '').trim())
+                .filter(Boolean)
+                .join(', ');
+
+            setRefillDraft({
+                prescriptionId: checkout.prescriptionId || prescriptionId,
+                prescriptionTitle: prescription?.fileName || 'Approved Prescription',
+                items: draftItems,
+                totals: checkout.totals || null,
+                quoteExpiresAt: checkout.quoteExpiresAt || null,
+            });
+            setPrescriptionOrderAddress(fallbackAddress);
+            setPrescriptionOrderPayment('COD');
+            setIsRefillModalOpen(true);
+        } catch (error) {
+            console.error('Error loading prescription checkout:', error.message);
+            alert(error.response?.data?.message || 'Could not prepare prescription checkout right now.');
+        } finally {
+            setPrescriptionCheckoutLoading(false);
+        }
+    };
+
+    const handlePlacePrescriptionOrder = async () => {
+        const token = localStorage.getItem('medVisionToken');
+
+        if (!token) {
+            alert('Please login again to continue checkout.');
+            return;
+        }
+
+        if (!refillDraft.prescriptionId) {
+            alert('Prescription context missing. Please reopen the checkout.');
+            return;
+        }
+
+        if (!String(prescriptionOrderAddress || '').trim()) {
+            alert('Please provide delivery address.');
             return;
         }
 
         try {
             setPlacingPrescriptionOrder(true);
 
-            const response = await axios.post(`${baseURL}/additemstocart`, {
-                id: userData._id,
-                items: selectedItems,
-                storeId: null,
+            const response = await axios.post(`${baseURL}/prescriptions/${refillDraft.prescriptionId}/place-order`, {
+                address: String(prescriptionOrderAddress || '').trim(),
+                deliveryType: 'delivery',
+                paymentMethod: prescriptionOrderPayment || 'COD',
+            }, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
             });
 
             const currentOrderId = response.data.orderId || response.data.order?.orderId;
@@ -710,15 +738,21 @@ const Dashboard = () => {
             }
 
             setIsRefillModalOpen(false);
-            navigate('/addresspage', {
-                state: {
-                    cartItems: selectedItems,
-                    orderId: currentOrderId,
-                },
+            setRefillDraft({
+                prescriptionId: null,
+                prescriptionTitle: '',
+                items: [],
+                totals: null,
+                quoteExpiresAt: null,
             });
+            setPrescriptionOrderAddress('');
+            setPrescriptionOrderPayment('COD');
+            await fetchMyOrders();
+            resetDashboardPanels();
+            setShowMyOrders(true);
         } catch (error) {
-            console.error('Error while creating prescription order:', error.message);
-            alert('Could not start checkout right now. Please try again.');
+            console.error('Error while placing prescription order:', error.message);
+            alert(error.response?.data?.message || 'Could not place prescription order right now. Please try again.');
         } finally {
             setPlacingPrescriptionOrder(false);
         }
@@ -1747,15 +1781,16 @@ const Dashboard = () => {
                                                             </div>
                                                         )}
 
-                                                        {isApprovedPrescription(prescription.status) && Array.isArray(prescription.medicines) && prescription.medicines.length > 0 && (
+                                                        {String(prescription.status || '').toLowerCase() === 'approved' && (
                                                             <div className="mt-4">
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleStartPrescriptionOrder(prescription)}
+                                                                    disabled={prescriptionCheckoutLoading}
                                                                     className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
                                                                 >
                                                                     <ShoppingBag size={16} />
-                                                                    Place Order From Prescription
+                                                                    {prescriptionCheckoutLoading ? 'Loading Checkout...' : 'Place Order From Prescription'}
                                                                 </button>
                                                             </div>
                                                         )}
@@ -2682,6 +2717,19 @@ const Dashboard = () => {
                                                         <p className="text-sm text-gray-700">
                                                             <span className="font-medium">Date:</span> {formatDashboardOrderDate(order.date)}
                                                         </p>
+                                                        <p className="text-sm text-gray-700">
+                                                            <span className="font-medium">Store:</span> {order.storeName || 'Not available'}
+                                                        </p>
+                                                        {(order.storeAddress || order.storeCity || order.storeState || order.storePincode) && (
+                                                            <p className="text-sm text-gray-600">
+                                                                <span className="font-medium">Store Address:</span> {[order.storeAddress, order.storeCity, order.storeState, order.storePincode].filter(Boolean).join(', ')}
+                                                            </p>
+                                                        )}
+                                                        {order.storeMobile && (
+                                                            <p className="text-sm text-gray-600">
+                                                                <span className="font-medium">Store Contact:</span> {order.storeMobile}
+                                                            </p>
+                                                        )}
                                                         <p className="text-sm text-gray-700 inline-flex items-center gap-1.5">
                                                             <CreditCard className="w-4 h-4 text-gray-500" />
                                                             <span className="font-medium">Payment:</span>
@@ -2753,7 +2801,7 @@ const Dashboard = () => {
                                                             Order Management - #{order.id}
                                                         </h3>
 
-                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
                                                             <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                                                                 <p className="text-xs text-slate-500">Status</p>
                                                                 <p className="text-sm font-semibold text-slate-800">{order.trackingStatus || order.status || 'Order Placed'}</p>
@@ -2765,6 +2813,10 @@ const Dashboard = () => {
                                                             <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                                                                 <p className="text-xs text-slate-500">Order Total</p>
                                                                 <p className="text-sm font-semibold text-slate-800">{formatUsd(order.totalAmount)}</p>
+                                                            </div>
+                                                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                                                                <p className="text-xs text-slate-500">Store</p>
+                                                                <p className="text-sm font-semibold text-slate-800">{order.storeName || 'Not available'}</p>
                                                             </div>
                                                         </div>
 
@@ -3133,13 +3185,13 @@ const Dashboard = () => {
                         <div className="flex items-center justify-between bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4 text-white">
                             <div>
                                 <p className="text-xs uppercase tracking-[0.22em] text-emerald-100">Approved Prescription</p>
-                                <h3 className="mt-1 text-xl font-bold">Adjust Quantity And Place Order</h3>
+                                <h3 className="mt-1 text-xl font-bold">Review And Place Order</h3>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => setIsRefillModalOpen(false)}
                                 className="rounded-full p-2 text-white/80 hover:bg-white/15 hover:text-white"
-                                disabled={placingPrescriptionOrder}
+                                disabled={placingPrescriptionOrder || prescriptionCheckoutLoading}
                             >
                                 <X size={18} />
                             </button>
@@ -3156,36 +3208,12 @@ const Dashboard = () => {
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
                                                 <p className="font-semibold text-slate-900">{item.name}</p>
-                                                <p className="mt-1 text-xs text-slate-500">{item.dosage} {item.price > 0 ? `• Rs ${item.price}` : ''}</p>
+                                                <p className="mt-1 text-xs text-slate-500">{item.dosage} {item.price > 0 ? `• Rs ${item.price} each` : ''}</p>
+                                                {item.isSubstituted && item.substitutionReason && (
+                                                    <p className="mt-1 text-xs text-amber-700">Substitution: {item.substitutionReason}</p>
+                                                )}
                                             </div>
-
-                                            <button
-                                                type="button"
-                                                onClick={() => removeRefillItem(item.id)}
-                                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                                            >
-                                                <Trash2 size={14} /> Remove
-                                            </button>
-                                        </div>
-
-                                        <div className="mt-3 inline-flex items-center rounded-xl border border-slate-200 bg-white p-1">
-                                            <button
-                                                type="button"
-                                                onClick={() => updateRefillQuantity(item.id, 'decrease')}
-                                                className="rounded-lg p-2 hover:bg-slate-100"
-                                                aria-label="Decrease quantity"
-                                            >
-                                                <Minus size={14} />
-                                            </button>
-                                            <span className="min-w-10 text-center text-sm font-semibold text-slate-900">{item.quantity}</span>
-                                            <button
-                                                type="button"
-                                                onClick={() => updateRefillQuantity(item.id, 'increase')}
-                                                className="rounded-lg p-2 hover:bg-slate-100"
-                                                aria-label="Increase quantity"
-                                            >
-                                                <Plus size={14} />
-                                            </button>
+                                            <p className="text-sm font-semibold text-slate-900">Qty: {item.quantity}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -3193,16 +3221,50 @@ const Dashboard = () => {
 
                             {refillDraft.items.length === 0 && (
                                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                                    All medicines removed. Add at least one medicine to proceed.
+                                    No approved medicines available to place order.
                                 </div>
                             )}
+
+                            {refillDraft.totals && (
+                                <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                                    <div className="flex items-center justify-between"><span>Subtotal</span><span>Rs {Number(refillDraft.totals.subtotal || 0).toFixed(2)}</span></div>
+                                    <div className="mt-1 flex items-center justify-between"><span>Discount</span><span>- Rs {Number(refillDraft.totals.discount || 0).toFixed(2)}</span></div>
+                                    <div className="mt-1 flex items-center justify-between"><span>Tax</span><span>Rs {Number(refillDraft.totals.tax || 0).toFixed(2)}</span></div>
+                                    <div className="mt-1 flex items-center justify-between"><span>Delivery</span><span>Rs {Number(refillDraft.totals.deliveryCharge || 0).toFixed(2)}</span></div>
+                                    <div className="mt-2 border-t border-emerald-200 pt-2 text-base font-bold flex items-center justify-between"><span>Total</span><span>Rs {Number(refillDraft.totals.grandTotal || 0).toFixed(2)}</span></div>
+                                </div>
+                            )}
+
+                            <div className="mt-4 grid grid-cols-1 gap-3">
+                                <div>
+                                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">Delivery Address</label>
+                                    <textarea
+                                        value={prescriptionOrderAddress}
+                                        onChange={(event) => setPrescriptionOrderAddress(event.target.value)}
+                                        rows={3}
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                        placeholder="Enter complete delivery address"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">Payment Method</label>
+                                    <select
+                                        value={prescriptionOrderPayment}
+                                        onChange={(event) => setPrescriptionOrderPayment(event.target.value)}
+                                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    >
+                                        <option value="COD">Cash On Delivery</option>
+                                        <option value="Online">Online Payment</option>
+                                    </select>
+                                </div>
+                            </div>
 
                             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                                 <button
                                     type="button"
                                     onClick={() => setIsRefillModalOpen(false)}
                                     className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                                    disabled={placingPrescriptionOrder}
+                                    disabled={placingPrescriptionOrder || prescriptionCheckoutLoading}
                                 >
                                     Cancel
                                 </button>
@@ -3210,9 +3272,9 @@ const Dashboard = () => {
                                     type="button"
                                     onClick={handlePlacePrescriptionOrder}
                                     className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                    disabled={placingPrescriptionOrder || refillDraft.items.length === 0}
+                                    disabled={placingPrescriptionOrder || prescriptionCheckoutLoading || refillDraft.items.length === 0}
                                 >
-                                    {placingPrescriptionOrder ? 'Preparing Checkout...' : 'Proceed To Place Order'}
+                                    {placingPrescriptionOrder ? 'Placing Order...' : 'Place Order'}
                                 </button>
                             </div>
                         </div>
