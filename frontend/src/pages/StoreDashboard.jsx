@@ -38,6 +38,32 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+const MEDICINE_TYPE_OPTIONS = [
+  'Tablet',
+  'Syrup',
+  'Capsule',
+  'Injection',
+  'Ointment',
+  'Drops',
+  'Powder',
+  'Gel',
+  'Inhaler',
+  'Suspension',
+  'Lotion',
+];
+
+const DEFAULT_MANUFACTURER_OPTIONS = [
+  'Sun Pharma',
+  'Cipla',
+  'Dr. Reddy\'s',
+  'Lupin',
+  'Mankind Pharma',
+  'Abbott',
+  'Alkem',
+  'Glenmark',
+  'Torrent Pharma',
+];
+
 const StoreDashboard = () => {
   const [selectedSection, setSelectedSection] = useState('home');
   const [dashboardAccessRole, setDashboardAccessRole] = useState('Store Admin');
@@ -111,6 +137,9 @@ const StoreDashboard = () => {
   const [staffSearchContact, setStaffSearchContact] = useState('');
   const [staffSearchEmail, setStaffSearchEmail] = useState('');
   const [inventoryItems, setInventoryItems] = useState([]);
+  const [storeManufacturers, setStoreManufacturers] = useState([]);
+  const [manufacturerSaving, setManufacturerSaving] = useState(false);
+  const [newManufacturerName, setNewManufacturerName] = useState('');
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventorySaving, setInventorySaving] = useState(false);
   const [newMedicine, setNewMedicine] = useState({
@@ -130,6 +159,16 @@ const StoreDashboard = () => {
     price: '',
     stock: '',
   });
+  const manufacturerDropdownOptions = useMemo(() => {
+    const masterManufacturers = (storeManufacturers || [])
+      .map((item) => String(item.name || '').trim())
+      .filter(Boolean);
+    const inventoryManufacturers = (inventoryItems || [])
+      .map((item) => String(item.manufacturer || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set([...masterManufacturers, ...inventoryManufacturers, ...DEFAULT_MANUFACTURER_OPTIONS]))
+      .sort((a, b) => a.localeCompare(b));
+  }, [storeManufacturers, inventoryItems]);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [barcodeScanning, setBarcodeScanning] = useState(false);
   const [barcodeLastCode, setBarcodeLastCode] = useState('');
@@ -242,6 +281,29 @@ const StoreDashboard = () => {
   const reportAverageOrderValue = reportOrdersTotal ? reportTotalRevenue / reportOrdersTotal : 0;
   const reportUniqueCustomers = new Set(orders.map((order) => order.customer)).size;
   const reportCompletionRate = reportOrdersTotal ? Math.round((reportCompletedOrders / reportOrdersTotal) * 100) : 0;
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditFilters, setAuditFilters] = useState(() => {
+    const now = new Date();
+    const to = now.toISOString().slice(0, 10);
+    const fromDate = new Date(now);
+    fromDate.setDate(now.getDate() - 6);
+    const from = fromDate.toISOString().slice(0, 10);
+    return {
+      user: '',
+      action: '',
+      from,
+      to,
+    };
+  });
+  const [auditExporting, setAuditExporting] = useState(false);
+  const [reportSnapshots, setReportSnapshots] = useState({
+    dailyClose: null,
+    prescriptionTurnaround: null,
+    inventoryRisk: null,
+  });
+  const [reportSnapshotsLoading, setReportSnapshotsLoading] = useState(false);
+  const [reportExportingType, setReportExportingType] = useState('');
 
   // Calculate dynamic revenue summary from orders
   const calculateRevenueSummary = () => {
@@ -427,6 +489,14 @@ const StoreDashboard = () => {
   });
   const selectedPrescriptionFileUrl = resolveFileUrl(selectedPrescription?.filePath);
   const normalizePrescriptionStatus = (value) => String(value || '').trim().toLowerCase();
+  const isApprovedPipelineStatus = (value) => {
+    const status = normalizePrescriptionStatus(value);
+    return status === 'approved' || status === 'ordered';
+  };
+  const safeNumber = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
   const isToday = (value) => {
     if (!value) return false;
     const parsed = new Date(value);
@@ -443,17 +513,17 @@ const StoreDashboard = () => {
     return sum + (Number.isFinite(amount) ? amount : 0);
   }, 0);
   const pendingPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'pending').length;
-  const approvedPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'approved').length;
+  const approvedPrescriptionCount = prescriptions.filter((p) => isApprovedPipelineStatus(p.status)).length;
   const reviewedPrescriptionCount = prescriptions.filter((p) => {
     const status = normalizePrescriptionStatus(p.status);
-    return status === 'approved' || status === 'rejected';
+    return status === 'approved' || status === 'rejected' || status === 'ordered';
   }).length;
   const rejectedPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'rejected').length;
   const approvalRate = reviewedPrescriptionCount > 0
     ? Math.round((approvedPrescriptionCount / reviewedPrescriptionCount) * 100)
     : 0;
   const approvedTodayCount = prescriptions.filter((p) => {
-    return normalizePrescriptionStatus(p.status) === 'approved' && isToday(p.reviewedAt || p.updatedAt);
+    return isApprovedPipelineStatus(p.status) && isToday(p.reviewedAt || p.updatedAt);
   }).length;
   const rejectedTodayCount = prescriptions.filter((p) => {
     return normalizePrescriptionStatus(p.status) === 'rejected' && isToday(p.reviewedAt || p.updatedAt);
@@ -476,6 +546,128 @@ const StoreDashboard = () => {
         return sum + ((reviewedAt - createdAt) / (1000 * 60 * 60));
       }, 0) / reviewedPrescriptionCount)
     : 0;
+  const dateToKey = (value) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  const last7DaysMetrics = useMemo(() => {
+    const now = new Date();
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      const date = new Date(now);
+      date.setDate(now.getDate() - i);
+      const key = dateToKey(date);
+      days.push({
+        key,
+        label: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        orders: 0,
+        revenue: 0,
+        approved: 0,
+      });
+    }
+
+    const dayMap = days.reduce((acc, day) => {
+      acc[day.key] = day;
+      return acc;
+    }, {});
+
+    orders.forEach((order) => {
+      const key = dateToKey(order.createdAt || order.updatedAt);
+      if (!key || !dayMap[key]) return;
+      dayMap[key].orders += 1;
+      dayMap[key].revenue += safeNumber(order.grandTotal ?? order.totalPrice ?? order.total ?? 0);
+    });
+
+    prescriptions.forEach((prescription) => {
+      if (!isApprovedPipelineStatus(prescription.status)) return;
+      const key = dateToKey(prescription.reviewedAt || prescription.updatedAt);
+      if (!key || !dayMap[key]) return;
+      dayMap[key].approved += 1;
+    });
+
+    return days;
+  }, [orders, prescriptions, isApprovedPipelineStatus]);
+
+  const todayTrendBucket = last7DaysMetrics[last7DaysMetrics.length - 1] || { orders: 0, revenue: 0, approved: 0 };
+  const yesterdayTrendBucket = last7DaysMetrics[last7DaysMetrics.length - 2] || { orders: 0, revenue: 0, approved: 0 };
+  const calcDelta = (todayValue, yesterdayValue) => {
+    if (!yesterdayValue && !todayValue) return 0;
+    if (!yesterdayValue) return 100;
+    return Number((((todayValue - yesterdayValue) / yesterdayValue) * 100).toFixed(1));
+  };
+  const orderDeltaPct = calcDelta(todayTrendBucket.orders, yesterdayTrendBucket.orders);
+  const revenueDeltaPct = calcDelta(todayTrendBucket.revenue, yesterdayTrendBucket.revenue);
+  const approvalDeltaPct = calcDelta(todayTrendBucket.approved, yesterdayTrendBucket.approved);
+
+  const sparklinePath = (values, width = 140, height = 40, padding = 4) => {
+    if (!values.length) return '';
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const range = maxValue - minValue || 1;
+    const stepX = values.length > 1 ? (width - (padding * 2)) / (values.length - 1) : 0;
+
+    return values
+      .map((value, index) => {
+        const x = padding + (index * stepX);
+        const normalized = (value - minValue) / range;
+        const y = height - padding - (normalized * (height - (padding * 2)));
+        return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+      })
+      .join(' ');
+  };
+
+  const ordersSparkline = sparklinePath(last7DaysMetrics.map((day) => day.orders));
+  const revenueSparkline = sparklinePath(last7DaysMetrics.map((day) => day.revenue));
+  const approvalsSparkline = sparklinePath(last7DaysMetrics.map((day) => day.approved));
+
+  const orderedPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'ordered').length;
+  const uploadedToApprovedPct = prescriptions.length
+    ? Number(((approvedPrescriptionCount / prescriptions.length) * 100).toFixed(1))
+    : 0;
+  const approvedToOrderedPct = approvedPrescriptionCount
+    ? Number(((orderedPrescriptionCount / approvedPrescriptionCount) * 100).toFixed(1))
+    : 0;
+
+  const inventoryAgingData = useMemo(() => {
+    const now = Date.now();
+    const rows = (inventoryItems || []).map((item) => {
+      const stock = Math.max(0, safeNumber(item.stock));
+      const price = Math.max(0, safeNumber(item.price));
+      const lastMovementSource = item.lastMovementAt || item.lastSoldAt || item.updatedAt || item.createdAt;
+      const lastMovement = new Date(lastMovementSource || Date.now());
+      const ageDays = Number.isNaN(lastMovement.getTime())
+        ? 0
+        : Math.max(0, Math.floor((now - lastMovement.getTime()) / (1000 * 60 * 60 * 24)));
+      return {
+        id: item._id,
+        name: item.name || 'Medicine',
+        manufacturer: item.manufacturer || 'N/A',
+        stock,
+        price,
+        ageDays,
+        blockedValue: Number((stock * price).toFixed(2)),
+      };
+    }).filter((item) => item.stock > 0);
+
+    return {
+      rows,
+      over30: rows.filter((item) => item.ageDays >= 30),
+      over60: rows.filter((item) => item.ageDays >= 60),
+      over90: rows.filter((item) => item.ageDays >= 90),
+    };
+  }, [inventoryItems]);
+
+  const deadStockValue90 = inventoryAgingData.over90.reduce((sum, item) => sum + item.blockedValue, 0);
+  const liquidationRecommendations = inventoryAgingData.rows
+    .filter((item) => item.ageDays >= 30)
+    .sort((a, b) => b.blockedValue - a.blockedValue)
+    .slice(0, 5)
+    .map((item) => ({
+      ...item,
+      suggestedDiscount: item.ageDays >= 120 ? 25 : item.ageDays >= 90 ? 20 : item.ageDays >= 60 ? 12 : 8,
+    }));
+
   const [patientsCsvFile, setPatientsCsvFile] = useState(null);
   const [csvUploadMessage, setCsvUploadMessage] = useState('');
   const [csvImporting, setCsvImporting] = useState(false);
@@ -554,6 +746,107 @@ const StoreDashboard = () => {
     validTill: '',
     notes: '',
   });
+
+  const staffProductivityRows = useMemo(() => {
+    const map = {};
+    (performanceRecords || []).forEach((record) => {
+      const staff = record.staffId || {};
+      const staffKey = String(staff._id || record._id || 'unknown');
+      const name = `${staff.firstName || ''} ${staff.lastName || ''}`.trim() || 'Unknown Staff';
+      if (!map[staffKey]) {
+        map[staffKey] = {
+          staffKey,
+          name,
+          ordersProcessed: 0,
+          prescriptionsReviewed: 0,
+          avgFulfillmentMinutesTotal: 0,
+          reviewEntries: 0,
+        };
+      }
+      map[staffKey].ordersProcessed += safeNumber(record.ordersProcessed);
+      map[staffKey].prescriptionsReviewed += safeNumber(record.prescriptionsReviewed);
+      map[staffKey].avgFulfillmentMinutesTotal += safeNumber(record.avgFulfillmentMinutes);
+      map[staffKey].reviewEntries += 1;
+    });
+
+    return Object.values(map)
+      .map((row) => ({
+        ...row,
+        avgFulfillmentMinutes: row.reviewEntries ? Number((row.avgFulfillmentMinutesTotal / row.reviewEntries).toFixed(1)) : 0,
+      }))
+      .sort((a, b) => b.prescriptionsReviewed - a.prescriptionsReviewed);
+  }, [performanceRecords]);
+
+  const staffDailyReviewRows = useMemo(() => {
+    const map = {};
+    (prescriptions || []).forEach((record) => {
+      const status = normalizePrescriptionStatus(record.status);
+      if (!(isApprovedPipelineStatus(status) || status === 'rejected')) return;
+      if (!isToday(record.reviewedAt || record.updatedAt)) return;
+
+      const reviewerName = String(record.reviewedByName || '').trim();
+      const reviewerRole = String(record.reviewedByRole || '').trim();
+      const reviewer = reviewerName || reviewerRole || 'Store Admin';
+      const reviewerStaffId = String(record?.reviewedByStaffId?._id || record?.reviewedByStaffId || '').trim();
+      const reviewerKey = reviewerStaffId || `${reviewerRole || 'Store Admin'}::${reviewer}`;
+
+      if (!map[reviewerKey]) {
+        map[reviewerKey] = { reviewer, reviewedToday: 0 };
+      }
+      map[reviewerKey].reviewedToday += 1;
+    });
+
+    return Object.values(map).sort((a, b) => b.reviewedToday - a.reviewedToday);
+  }, [isApprovedPipelineStatus, prescriptions]);
+
+  const staffAvgReviewTimeRows = useMemo(() => {
+    const map = {};
+    (prescriptions || []).forEach((record) => {
+      const status = normalizePrescriptionStatus(record.status);
+      if (!(status === 'approved' || status === 'rejected')) return;
+      if (!record.createdAt || !record.reviewedAt) return;
+
+      const createdAtMs = new Date(record.createdAt).getTime();
+      const reviewedAtMs = new Date(record.reviewedAt).getTime();
+      if (Number.isNaN(createdAtMs) || Number.isNaN(reviewedAtMs) || reviewedAtMs < createdAtMs) return;
+
+      const reviewer = String(record.reviewedByName || 'Store Admin').trim() || 'Store Admin';
+      if (!map[reviewer]) {
+        map[reviewer] = { reviewer, totalHours: 0, count: 0 };
+      }
+      map[reviewer].totalHours += (reviewedAtMs - createdAtMs) / (1000 * 60 * 60);
+      map[reviewer].count += 1;
+    });
+
+    return Object.values(map)
+      .map((row) => ({
+        reviewer: row.reviewer,
+        avgHours: row.count ? Number((row.totalHours / row.count).toFixed(1)) : 0,
+      }))
+      .sort((a, b) => a.avgHours - b.avgHours);
+  }, [prescriptions]);
+
+  const shiftWorkloadRows = useMemo(() => {
+    const shiftMap = {};
+    (attendanceRecords || []).forEach((record) => {
+      const shift = String(record.shiftType || 'Unassigned');
+      if (!shiftMap[shift]) {
+        shiftMap[shift] = { shift, staffCount: 0, presentCount: 0, halfDayCount: 0 };
+      }
+      shiftMap[shift].staffCount += 1;
+      const status = String(record.status || '').toLowerCase();
+      if (status === 'present') shiftMap[shift].presentCount += 1;
+      if (status === 'half day') shiftMap[shift].halfDayCount += 1;
+    });
+
+    return Object.values(shiftMap).sort((a, b) => b.presentCount - a.presentCount);
+  }, [attendanceRecords]);
+
+  const topShift = shiftWorkloadRows[0] || null;
+  const lowShift = shiftWorkloadRows[shiftWorkloadRows.length - 1] || null;
+  const shiftBalancingInsight = topShift && lowShift && topShift.shift !== lowShift.shift
+    ? `${lowShift.shift} shift is lighter than ${topShift.shift}. Consider moving one staff member during peak windows.`
+    : 'Shift allocation looks balanced for the current records.';
 
   const [complianceLoading, setComplianceLoading] = useState(false);
   const [complianceItems, setComplianceItems] = useState([]);
@@ -636,10 +929,49 @@ const StoreDashboard = () => {
     return parsed.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
   };
 
+  const formatDateTime = (value) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+    return parsed.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const auditActionOptions = [
+    { value: '', label: 'All Actions' },
+    { value: 'PRESCRIPTION_STATUS_CHANGE', label: 'Prescription Status Change' },
+    { value: 'ORDER_STATUS_CHANGE', label: 'Order Status Change' },
+    { value: 'INVENTORY_PRICE_EDIT', label: 'Inventory Price Edit' },
+    { value: 'INVENTORY_STOCK_EDIT', label: 'Inventory Stock Edit' },
+    { value: 'INVENTORY_UPDATE', label: 'Inventory Update' },
+    { value: 'INVENTORY_CREATE', label: 'Inventory Create' },
+    { value: 'INVENTORY_DELETE', label: 'Inventory Delete' },
+  ];
+
   const authConfig = () => {
     const token = localStorage.getItem('medVisionToken');
     if (!token) return null;
-    return { headers: { Authorization: `Bearer ${token}` } };
+
+    const localUserRaw = localStorage.getItem('userData') || localStorage.getItem('user') || '{}';
+    let localUser = {};
+    try {
+      localUser = JSON.parse(localUserRaw);
+    } catch {
+      localUser = {};
+    }
+
+    const delegatedStaffId = String(loggedInAccount?.staffId || localUser?.staffId || '').trim();
+    const headers = { Authorization: `Bearer ${token}` };
+    if (delegatedStaffId) {
+      headers['x-staff-id'] = delegatedStaffId;
+    }
+
+    return { headers };
   };
 
   const parseInvoiceItems = (itemsText) => {
@@ -1298,6 +1630,151 @@ const StoreDashboard = () => {
     }
   };
 
+  const downloadBlobResponse = (blob, fileName) => {
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const loadAuditLogs = async (overrideFilters = null) => {
+    const config = authConfig();
+    if (!config) return;
+
+    const filters = overrideFilters || auditFilters;
+
+    try {
+      setAuditLoading(true);
+      const response = await axios.get(`${baseURL}/audit/logs`, {
+        ...config,
+        params: {
+          user: filters.user,
+          action: filters.action,
+          from: filters.from,
+          to: filters.to,
+          limit: 150,
+          page: 1,
+        },
+      });
+      setAuditLogs(response.data?.logs || []);
+    } catch (error) {
+      console.error('Failed to load audit logs:', error.message);
+      setAuditLogs([]);
+      toast.error(error.response?.data?.message || 'Failed to load audit logs');
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const exportAuditLogsCsv = async () => {
+    const config = authConfig();
+    if (!config) return;
+
+    try {
+      setAuditExporting(true);
+      const response = await axios.get(`${baseURL}/audit/logs/export`, {
+        ...config,
+        params: {
+          user: auditFilters.user,
+          action: auditFilters.action,
+          from: auditFilters.from,
+          to: auditFilters.to,
+        },
+        responseType: 'blob',
+      });
+
+      const fileDate = new Date().toISOString().slice(0, 10);
+      downloadBlobResponse(response.data, `audit-logs-${fileDate}.csv`);
+      toast.success('Audit logs exported');
+    } catch (error) {
+      console.error('Failed to export audit logs:', error.message);
+      toast.error(error.response?.data?.message || 'Failed to export audit logs');
+    } finally {
+      setAuditExporting(false);
+    }
+  };
+
+  const loadReportSnapshots = async () => {
+    const config = authConfig();
+    if (!config) return;
+
+    const nowDate = new Date().toISOString().slice(0, 10);
+    const from = auditFilters.from;
+    const to = auditFilters.to;
+
+    try {
+      setReportSnapshotsLoading(true);
+      const [dailyCloseRes, turnaroundRes, inventoryRiskRes] = await Promise.all([
+        axios.get(`${baseURL}/reports/daily-close`, {
+          ...config,
+          params: { date: nowDate },
+        }),
+        axios.get(`${baseURL}/reports/prescription-turnaround`, {
+          ...config,
+          params: { from, to },
+        }),
+        axios.get(`${baseURL}/reports/inventory-risk`, config),
+      ]);
+
+      setReportSnapshots({
+        dailyClose: dailyCloseRes.data?.report || null,
+        prescriptionTurnaround: turnaroundRes.data?.summary || null,
+        inventoryRisk: inventoryRiskRes.data?.summary || null,
+      });
+    } catch (error) {
+      console.error('Failed to load report snapshots:', error.message);
+      setReportSnapshots({ dailyClose: null, prescriptionTurnaround: null, inventoryRisk: null });
+      toast.error(error.response?.data?.message || 'Failed to load report snapshots');
+    } finally {
+      setReportSnapshotsLoading(false);
+    }
+  };
+
+  const exportOperationalReport = async (reportType) => {
+    const config = authConfig();
+    if (!config) return;
+
+    const endpointByType = {
+      dailyClose: '/reports/daily-close',
+      prescriptionTurnaround: '/reports/prescription-turnaround',
+      inventoryRisk: '/reports/inventory-risk',
+    };
+    const fileNameByType = {
+      dailyClose: `daily-close-${new Date().toISOString().slice(0, 10)}.csv`,
+      prescriptionTurnaround: `prescription-turnaround-${auditFilters.from}-to-${auditFilters.to}.csv`,
+      inventoryRisk: `inventory-risk-${new Date().toISOString().slice(0, 10)}.csv`,
+    };
+
+    const endpoint = endpointByType[reportType];
+    if (!endpoint) return;
+
+    const params = reportType === 'dailyClose'
+      ? { date: new Date().toISOString().slice(0, 10), format: 'csv' }
+      : reportType === 'prescriptionTurnaround'
+        ? { from: auditFilters.from, to: auditFilters.to, format: 'csv' }
+        : { format: 'csv' };
+
+    try {
+      setReportExportingType(reportType);
+      const response = await axios.get(`${baseURL}${endpoint}`, {
+        ...config,
+        params,
+        responseType: 'blob',
+      });
+      downloadBlobResponse(response.data, fileNameByType[reportType]);
+      toast.success('Report downloaded');
+    } catch (error) {
+      console.error('Failed to export report:', error.message);
+      toast.error(error.response?.data?.message || 'Failed to download report');
+    } finally {
+      setReportExportingType('');
+    }
+  };
+
   const handleUpdateTrackingStatus = async (newStatus) => {
     if (!selectedOrder) return;
     
@@ -1349,14 +1826,12 @@ const StoreDashboard = () => {
   };
 
   const loadStorePrescriptions = async () => {
-    const token = localStorage.getItem('medVisionToken');
-    if (!token) return;
+    const config = authConfig();
+    if (!config) return;
 
     try {
       setPrescriptionsLoading(true);
-      const response = await axios.get(`${baseURL}/prescriptions/store`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axios.get(`${baseURL}/prescriptions/store`, config);
       const rows = response.data.prescriptions || [];
       setPrescriptions(rows);
       setSelectedPrescriptionId((prev) => prev || rows[0]?._id || null);
@@ -1513,8 +1988,8 @@ const StoreDashboard = () => {
   };
 
   const updatePrescriptionStatus = async (id, status) => {
-    const token = localStorage.getItem('medVisionToken');
-    if (!token) return;
+    const config = authConfig();
+    if (!config) return;
 
     try {
       const normalizedStatus = String(status || '').toLowerCase();
@@ -1576,7 +2051,7 @@ const StoreDashboard = () => {
       await axios.patch(
         `${baseURL}/prescriptions/${id}/review`,
         payload,
-        { headers: { Authorization: `Bearer ${token}` } },
+        config,
       );
       toast.success(`Prescription ${normalizedStatus}`);
       await loadStorePrescriptions();
@@ -1830,6 +2305,54 @@ const StoreDashboard = () => {
     }
   };
 
+  const loadStoreManufacturers = async () => {
+    const config = authConfig();
+    if (!config) return;
+
+    try {
+      const response = await axios.get(`${baseURL}/manufacturers`, config);
+      setStoreManufacturers(response.data?.manufacturers || []);
+    } catch (error) {
+      console.error('Failed to load manufacturers:', error.message);
+      setStoreManufacturers([]);
+    }
+  };
+
+  const addStoreManufacturer = async (event) => {
+    event.preventDefault();
+
+    const name = String(newManufacturerName || '').trim();
+    if (!name) {
+      toast.error('Manufacturer name is required');
+      return;
+    }
+
+    const config = authConfig();
+    if (!config) return;
+
+    try {
+      setManufacturerSaving(true);
+      const response = await axios.post(`${baseURL}/manufacturers`, { name }, config);
+      const created = response.data?.manufacturer;
+      if (created) {
+        setStoreManufacturers((prev) => {
+          if (prev.some((item) => String(item.name || '').toLowerCase() === String(created.name || '').toLowerCase())) {
+            return prev;
+          }
+          return [...prev, created].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        });
+        setNewMedicine((prev) => ({ ...prev, manufacturer: created.name || prev.manufacturer }));
+      }
+      setNewManufacturerName('');
+      toast.success('Manufacturer added successfully');
+    } catch (error) {
+      console.error('Failed to add manufacturer:', error.message);
+      toast.error(error.response?.data?.message || 'Failed to add manufacturer');
+    } finally {
+      setManufacturerSaving(false);
+    }
+  };
+
   const handleRefreshDashboard = async () => {
     const token = localStorage.getItem('medVisionToken');
     if (!token) {
@@ -1848,6 +2371,7 @@ const StoreDashboard = () => {
         loadStoreReviews(),
         loadStoreStaffMembers(),
         loadStoreInventory(),
+        loadStoreManufacturers(),
       ]);
 
       if (allowedSectionKeys.includes('financialManagement')) {
@@ -2150,6 +2674,7 @@ const StoreDashboard = () => {
     }
     if (selectedSection === 'inventory' && allowedSectionKeys.includes('inventory')) {
       loadStoreInventory();
+      loadStoreManufacturers();
     }
     if (selectedSection === 'financialManagement' && allowedSectionKeys.includes('financialManagement')) {
       loadFinance();
@@ -2161,6 +2686,10 @@ const StoreDashboard = () => {
     if ((selectedSection === 'orders' || selectedSection === 'reports') && allowedSectionKeys.includes(selectedSection)) {
       loadStoreOrders();
     }
+    if (selectedSection === 'reports' && allowedSectionKeys.includes('reports')) {
+      loadAuditLogs();
+      loadReportSnapshots();
+    }
     if (selectedSection === 'prescription' && allowedSectionKeys.includes('prescription')) {
       loadStorePrescriptions();
       loadStoreStaffMembers();
@@ -2170,6 +2699,10 @@ const StoreDashboard = () => {
       loadStoreOrders();
       loadStorePrescriptions();
       loadStoreInventory();
+      if (allowedSectionKeys.includes('staff')) {
+        loadStoreStaffMembers();
+        loadStaffOperations();
+      }
     }
     if (selectedSection === 'myProfile') {
       loadStoreStaffMembers();
@@ -2625,7 +3158,7 @@ const StoreDashboard = () => {
                   <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-semibold text-purple-600 uppercase">Approved Today</p>
+                        <p className="text-xs font-semibold text-purple-600 uppercase">Approved/Ordered Today</p>
                         <p className="mt-2 text-2xl font-bold text-purple-900">
                           {approvedTodayCount}
                         </p>
@@ -2633,6 +3166,191 @@ const StoreDashboard = () => {
                         <p className="text-[11px] font-medium text-purple-700">Approval Rate: {approvalRate}%</p>
                       </div>
                       <Eye className="text-purple-400" size={32} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Store KPI Trends */}
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-900">Store KPI Trends</h2>
+                      <p className="text-sm text-slate-500">Today vs yesterday and 7-day movement for core KPIs.</p>
+                    </div>
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">Last 7 Days</span>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-blue-700">Orders Trend</p>
+                      <p className="mt-1 text-2xl font-bold text-blue-900">{todayTrendBucket.orders}</p>
+                      <p className={`text-xs font-semibold ${orderDeltaPct >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {orderDeltaPct >= 0 ? '+' : ''}{orderDeltaPct}% vs yesterday
+                      </p>
+                      <svg viewBox="0 0 140 40" className="mt-2 h-12 w-full">
+                        <path d={ordersSparkline} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-emerald-700">Revenue Trend</p>
+                      <p className="mt-1 text-2xl font-bold text-emerald-900">₹{todayTrendBucket.revenue.toFixed(2)}</p>
+                      <p className={`text-xs font-semibold ${revenueDeltaPct >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {revenueDeltaPct >= 0 ? '+' : ''}{revenueDeltaPct}% vs yesterday
+                      </p>
+                      <svg viewBox="0 0 140 40" className="mt-2 h-12 w-full">
+                        <path d={revenueSparkline} fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    </div>
+
+                    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-purple-700">Approved Trend</p>
+                      <p className="mt-1 text-2xl font-bold text-purple-900">{todayTrendBucket.approved}</p>
+                      <p className={`text-xs font-semibold ${approvalDeltaPct >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {approvalDeltaPct >= 0 ? '+' : ''}{approvalDeltaPct}% vs yesterday
+                      </p>
+                      <svg viewBox="0 0 140 40" className="mt-2 h-12 w-full">
+                        <path d={approvalsSparkline} fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Uploaded Prescriptions</p>
+                      <p className="text-lg font-bold text-slate-900">{prescriptions.length}</p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-50 p-3">
+                      <p className="text-xs text-emerald-700">Uploaded → Approved/Ordered</p>
+                      <p className="text-lg font-bold text-emerald-900">{uploadedToApprovedPct}%</p>
+                    </div>
+                    <div className="rounded-xl bg-blue-50 p-3">
+                      <p className="text-xs text-blue-700">Approved/Ordered Prescriptions</p>
+                      <p className="text-lg font-bold text-blue-900">{approvedPrescriptionCount}</p>
+                    </div>
+                    <div className="rounded-xl bg-indigo-50 p-3">
+                      <p className="text-xs text-indigo-700">Approved → Ordered</p>
+                      <p className="text-lg font-bold text-indigo-900">{approvedToOrderedPct}%</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inventory Aging + Dead Stock */}
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-900">Inventory Aging + Dead Stock</h2>
+                      <p className="text-sm text-slate-500">Track non-moving stock and liquidation opportunities.</p>
+                    </div>
+                    <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                      Value Blocked (90+ days): ₹{deadStockValue90.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-xs uppercase text-amber-700">30+ Days</p>
+                      <p className="text-2xl font-bold text-amber-900">{inventoryAgingData.over30.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                      <p className="text-xs uppercase text-orange-700">60+ Days</p>
+                      <p className="text-2xl font-bold text-orange-900">{inventoryAgingData.over60.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                      <p className="text-xs uppercase text-rose-700">90+ Days (Dead Stock)</p>
+                      <p className="text-2xl font-bold text-rose-900">{inventoryAgingData.over90.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="mb-2 text-sm font-semibold text-slate-800">Liquidation Recommendations</p>
+                    {liquidationRecommendations.length ? (
+                      <div className="space-y-2">
+                        {liquidationRecommendations.map((item) => (
+                          <div key={`liquidation-${item.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-sm">
+                            <div>
+                              <p className="font-semibold text-slate-900">{item.name}</p>
+                              <p className="text-xs text-slate-500">{item.manufacturer} • {item.ageDays} days old • Qty {item.stock}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-semibold text-slate-900">₹{item.blockedValue.toFixed(2)}</p>
+                              <p className="text-xs font-semibold text-rose-700">Suggest {item.suggestedDiscount}% off</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">No aging inventory beyond 30 days right now.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Staff Productivity Dashboard */}
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-900">Staff Productivity Dashboard</h2>
+                      <p className="text-sm text-slate-500">Review output, average handling time, and shift workload balance.</p>
+                    </div>
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{staffProductivityRows.length} staff tracked</span>
+                  </div>
+
+                  <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+                    <div className="space-y-3">
+                      <p className="text-sm font-semibold text-slate-800">Prescriptions Reviewed Per Staff (Today)</p>
+                      {staffDailyReviewRows.length ? staffDailyReviewRows.slice(0, 6).map((row) => (
+                        <div key={`staff-daily-${row.reviewer}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                          <p className="font-semibold text-slate-900">{row.reviewer}</p>
+                          <p className="font-semibold text-emerald-700">{row.reviewedToday} reviewed today</p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-slate-500">No prescription reviews recorded today.</p>
+                      )}
+
+                      <p className="pt-2 text-sm font-semibold text-slate-800">Avg Handling Time (Performance Tracker)</p>
+                      {staffProductivityRows.length ? staffProductivityRows.slice(0, 6).map((row) => (
+                        <div key={`staff-productivity-${row.staffKey}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                          <div>
+                            <p className="font-semibold text-slate-900">{row.name}</p>
+                            <p className="text-xs text-slate-500">Orders: {row.ordersProcessed}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-emerald-700">Reviewed: {row.prescriptionsReviewed}</p>
+                            <p className="text-xs text-slate-600">Avg time: {row.avgFulfillmentMinutes} mins</p>
+                          </div>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-slate-500">No performance records available yet.</p>
+                      )}
+
+                      <p className="pt-2 text-sm font-semibold text-slate-800">Average Review Time by Staff</p>
+                      {staffAvgReviewTimeRows.length ? staffAvgReviewTimeRows.slice(0, 6).map((row) => (
+                        <div key={`staff-review-time-${row.reviewer}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                          <p className="font-semibold text-slate-900">{row.reviewer}</p>
+                          <p className="font-semibold text-blue-700">{row.avgHours} hrs avg</p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-slate-500">Not enough review history for average time by staff.</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-sm font-semibold text-slate-800">Shift-Level Workload Balance</p>
+                      {shiftWorkloadRows.length ? shiftWorkloadRows.map((shiftRow) => (
+                        <div key={`shift-${shiftRow.shift}`} className="rounded-xl border border-slate-200 p-3 text-sm">
+                          <div className="flex items-center justify-between">
+                            <p className="font-semibold text-slate-900">{shiftRow.shift}</p>
+                            <p className="text-xs text-slate-500">Records: {shiftRow.staffCount}</p>
+                          </div>
+                          <p className="mt-1 text-xs text-emerald-700">Present: {shiftRow.presentCount} • Half Day: {shiftRow.halfDayCount}</p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-slate-500">No shift attendance records available yet.</p>
+                      )}
+                      <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-800">
+                        <p className="font-semibold">Balancing Insight</p>
+                        <p className="mt-1">{shiftBalancingInsight}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2657,7 +3375,7 @@ const StoreDashboard = () => {
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-slate-700">Approved</span>
+                            <span className="text-sm text-slate-700">Approved / Ordered</span>
                             <span className="inline-flex items-center gap-2">
                               <span className="text-lg font-bold text-emerald-600">{approvedPrescriptionCount}</span>
                               <span className="text-xs text-slate-500">prescriptions</span>
@@ -4315,12 +5033,20 @@ const StoreDashboard = () => {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div>
                                 <label className="block text-sm font-medium text-slate-700">Manufacturer</label>
-                                <input
+                                <select
                                   name="manufacturer"
                                   value={editMedicine.manufacturer}
                                   onChange={handleEditMedicineChange}
                                   className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-                                />
+                                >
+                                  <option value="">Select Manufacturer</option>
+                                  {editMedicine.manufacturer && !manufacturerDropdownOptions.includes(editMedicine.manufacturer) ? (
+                                    <option value={editMedicine.manufacturer}>{editMedicine.manufacturer}</option>
+                                  ) : null}
+                                  {manufacturerDropdownOptions.map((manufacturer) => (
+                                    <option key={`edit-manufacturer-${manufacturer}`} value={manufacturer}>{manufacturer}</option>
+                                  ))}
+                                </select>
                               </div>
                               <div>
                                 <label className="block text-sm font-medium text-slate-700">Dosage</label>
@@ -4335,13 +5061,20 @@ const StoreDashboard = () => {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                               <div>
                                 <label className="block text-sm font-medium text-slate-700">Type</label>
-                                <input
+                                <select
                                   name="type"
                                   value={editMedicine.type}
                                   onChange={handleEditMedicineChange}
                                   className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-                                  placeholder="Tablet / Syrup / Capsule"
-                                />
+                                >
+                                  <option value="">Select Type</option>
+                                  {editMedicine.type && !MEDICINE_TYPE_OPTIONS.includes(editMedicine.type) ? (
+                                    <option value={editMedicine.type}>{editMedicine.type}</option>
+                                  ) : null}
+                                  {MEDICINE_TYPE_OPTIONS.map((typeValue) => (
+                                    <option key={`edit-type-${typeValue}`} value={typeValue}>{typeValue}</option>
+                                  ))}
+                                </select>
                               </div>
                               <div>
                                 <label className="block text-sm font-medium text-slate-700">Price</label>
@@ -4446,6 +5179,28 @@ const StoreDashboard = () => {
                       <p className="text-sm text-slate-500">Create new inventory entries quickly.</p>
                     </div>
                   </div>
+                  {dashboardAccessRole === 'Store Admin' && (
+                    <form className="mb-5 rounded-2xl border border-indigo-200 bg-indigo-50 p-4" onSubmit={addStoreManufacturer}>
+                      <p className="text-sm font-semibold text-indigo-900">Manufacturer Master (Store Admin)</p>
+                      <p className="mt-1 text-xs text-indigo-700">Add manufacturer names once and reuse them in medicine dropdown.</p>
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          type="text"
+                          value={newManufacturerName}
+                          onChange={(event) => setNewManufacturerName(event.target.value)}
+                          placeholder="Enter manufacturer name"
+                          className="block w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                        />
+                        <button
+                          type="submit"
+                          disabled={manufacturerSaving}
+                          className="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {manufacturerSaving ? 'Adding...' : 'Add'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                   <form className="space-y-4" onSubmit={addMedicine}>
                     <div>
                       <label className="block text-sm font-medium text-slate-700">Medicine Name</label>
@@ -4461,13 +5216,17 @@ const StoreDashboard = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700">Manufacturer</label>
-                        <input
+                        <select
                           name="manufacturer"
                           value={newMedicine.manufacturer}
                           onChange={handleNewMedicineChange}
                           className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-                          placeholder="e.g. ABC Pharma"
-                        />
+                        >
+                          <option value="">Select Manufacturer</option>
+                          {manufacturerDropdownOptions.map((manufacturer) => (
+                            <option key={`new-manufacturer-${manufacturer}`} value={manufacturer}>{manufacturer}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700">Dosage</label>
@@ -4483,13 +5242,17 @@ const StoreDashboard = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-sm font-medium text-slate-700">Type</label>
-                        <input
+                        <select
                           name="type"
                           value={newMedicine.type}
                           onChange={handleNewMedicineChange}
                           className="mt-1 block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500"
-                          placeholder="Tablet / Syrup / Capsule"
-                        />
+                        >
+                          <option value="">Select Type</option>
+                          {MEDICINE_TYPE_OPTIONS.map((typeValue) => (
+                            <option key={`new-type-${typeValue}`} value={typeValue}>{typeValue}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700">Price</label>
@@ -5484,6 +6247,166 @@ const StoreDashboard = () => {
                         {revenueSummary.growth >= 0 ? '+' : ''}{revenueSummary.growth}%
                       </p>
                       <p className="mt-1 text-sm text-slate-600">Compared with the previous week</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Audit Trail Panel</h3>
+                      <p className="text-sm text-slate-500">Track who changed what and when across status, stock, and price updates.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={exportAuditLogsCsv}
+                      disabled={auditExporting}
+                      className="inline-flex items-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {auditExporting ? 'Exporting...' : 'Export Audit Logs (CSV)'}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    <input
+                      type="text"
+                      value={auditFilters.user}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, user: event.target.value }))}
+                      placeholder="Filter by user"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <select
+                      value={auditFilters.action}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, action: event.target.value }))}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    >
+                      {auditActionOptions.map((option) => (
+                        <option key={`audit-action-${option.value || 'all'}`} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="date"
+                      value={auditFilters.from}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, from: event.target.value }))}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="date"
+                      value={auditFilters.to}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, to: event.target.value }))}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => loadAuditLogs()}
+                      disabled={auditLoading}
+                      className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {auditLoading ? 'Loading...' : 'Apply Filters'}
+                    </button>
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">When</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">User</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">Action</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">What Changed</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {auditLoading ? (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-6 text-center text-slate-500">Loading audit logs...</td>
+                          </tr>
+                        ) : auditLogs.length ? auditLogs.map((log) => (
+                          <tr key={log._id}>
+                            <td className="px-4 py-3 text-slate-700">{formatDateTime(log.occurredAt)}</td>
+                            <td className="px-4 py-3 text-slate-700">
+                              <p className="font-semibold text-slate-900">{log?.actor?.name || 'Store Admin'}</p>
+                              <p className="text-xs text-slate-500">{log?.actor?.role || 'Store Admin'}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{log.action}</span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              <p className="font-medium text-slate-900">{log.description || `${log.entityType} updated`}</p>
+                              <p className="mt-1 text-xs text-slate-500">{log.entityType} #{log.entityId}</p>
+                            </td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-6 text-center text-slate-500">No audit records found for selected filters.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">Downloadable Operational Reports</h3>
+                      <p className="text-sm text-slate-500">Generate and download operational CSV files for daily close, prescription turnaround, and inventory risk.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={loadReportSnapshots}
+                      disabled={reportSnapshotsLoading}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {reportSnapshotsLoading ? 'Refreshing...' : 'Refresh Report Data'}
+                    </button>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-slate-600">Daily Close Report</p>
+                      <p className="mt-2 text-sm text-slate-700">Orders: <span className="font-semibold text-slate-900">{reportSnapshots.dailyClose?.totalOrders ?? 0}</span></p>
+                      <p className="text-sm text-slate-700">Revenue: <span className="font-semibold text-slate-900">{formatUSD(reportSnapshots.dailyClose?.totalRevenue ?? 0)}</span></p>
+                      <p className="text-sm text-slate-700">Rejections: <span className="font-semibold text-slate-900">{reportSnapshots.dailyClose?.rejectedPrescriptions ?? 0}</span></p>
+                      <p className="text-sm text-slate-700">Pending: <span className="font-semibold text-slate-900">{(reportSnapshots.dailyClose?.pendingOrders ?? 0) + (reportSnapshots.dailyClose?.pendingPrescriptions ?? 0)}</span></p>
+                      <button
+                        type="button"
+                        onClick={() => exportOperationalReport('dailyClose')}
+                        disabled={reportExportingType === 'dailyClose'}
+                        className="mt-4 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {reportExportingType === 'dailyClose' ? 'Downloading...' : 'Download Daily Close CSV'}
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-indigo-700">Prescription Turnaround Report</p>
+                      <p className="mt-2 text-sm text-indigo-900">Reviewed: <span className="font-semibold">{reportSnapshots.prescriptionTurnaround?.reviewedCount ?? 0}</span></p>
+                      <p className="text-sm text-indigo-900">Pending: <span className="font-semibold">{reportSnapshots.prescriptionTurnaround?.pendingCount ?? 0}</span></p>
+                      <p className="text-sm text-indigo-900">Avg turnaround: <span className="font-semibold">{reportSnapshots.prescriptionTurnaround?.avgTurnaroundHours ?? 0} hrs</span></p>
+                      <button
+                        type="button"
+                        onClick={() => exportOperationalReport('prescriptionTurnaround')}
+                        disabled={reportExportingType === 'prescriptionTurnaround'}
+                        className="mt-4 w-full rounded-xl bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {reportExportingType === 'prescriptionTurnaround' ? 'Downloading...' : 'Download Turnaround CSV'}
+                      </button>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-amber-700">Inventory Risk Report</p>
+                      <p className="mt-2 text-sm text-amber-900">Out of stock: <span className="font-semibold">{reportSnapshots.inventoryRisk?.outOfStockCount ?? 0}</span></p>
+                      <p className="text-sm text-amber-900">Near stockout: <span className="font-semibold">{reportSnapshots.inventoryRisk?.nearStockoutCount ?? 0}</span></p>
+                      <p className="text-sm text-amber-900">Items tracked: <span className="font-semibold">{reportSnapshots.inventoryRisk?.totalItems ?? 0}</span></p>
+                      <button
+                        type="button"
+                        onClick={() => exportOperationalReport('inventoryRisk')}
+                        disabled={reportExportingType === 'inventoryRisk'}
+                        className="mt-4 w-full rounded-xl bg-amber-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {reportExportingType === 'inventoryRisk' ? 'Downloading...' : 'Download Inventory Risk CSV'}
+                      </button>
                     </div>
                   </div>
                 </div>

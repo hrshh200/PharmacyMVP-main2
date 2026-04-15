@@ -4,7 +4,7 @@ const multer = require("multer");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { signUp, signIn, forgotPassword, fetchData, updateStoreProfile, AdminfetchData, adminsignIn, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences, uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest, getPrescriptionCheckout, placePrescriptionOrder, getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv, getMedicinesByStore, getStoreInventory, createStoreInventoryMedicine, updateStoreInventoryMedicine, deleteStoreInventoryMedicine, createReview, updateReview, deleteReview, getPublicReviews, getStoreReviews, getMyReviews, getMyStoreReviews, replyToReview, uploadPrescriptionForAutoFill, extractMedicinesFromUploadedPrescription, getUserPrescriptionUploads, addExtractedMedicinesToCart, getWishlist, addToWishlist, removeFromWishlist, createMedicineTracker, getMedicineTrackers, logMedicineIntake, checkDrugInteractions, getMedicalTimeline, exportHealthRecordsPdf, getPublicPromotionalCampaigns, validatePublicCoupon } = require("../controllers/auth");
+const { signUp, signIn, forgotPassword, fetchData, updateStoreProfile, AdminfetchData, adminsignIn, uploadPrescriptionFile, UpdatePatientProfile, fetchpharmacymedicines, updateorderedmedicines, updatecartquantity, addmedicinetodb, decreaseupdatecartquantity, deletemedicine, finalitems, finaladdress, finalpayment, deletecartItems, createStoreApprovalRequest, getStoreApprovalRequests, reviewStoreApprovalRequest, getAllStores, updateStoreStatus, addStore, getUserNotificationPreferences, updateUserNotificationPreferences, uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest, getPrescriptionCheckout, placePrescriptionOrder, getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv, getMedicinesByStore, getStoreManufacturers, createStoreManufacturer, getStoreInventory, createStoreInventoryMedicine, updateStoreInventoryMedicine, deleteStoreInventoryMedicine, createReview, updateReview, deleteReview, getPublicReviews, getStoreReviews, getMyReviews, getMyStoreReviews, replyToReview, uploadPrescriptionForAutoFill, extractMedicinesFromUploadedPrescription, getUserPrescriptionUploads, addExtractedMedicinesToCart, getWishlist, addToWishlist, removeFromWishlist, createMedicineTracker, getMedicineTrackers, logMedicineIntake, checkDrugInteractions, getMedicalTimeline, exportHealthRecordsPdf, getPublicPromotionalCampaigns, validatePublicCoupon, getStoreAuditLogs, exportStoreAuditLogsCsv, getDailyCloseReport, getPrescriptionTurnaroundReport, getInventoryRiskReport } = require("../controllers/auth");
 const {
   getStoreRolePermissions,
   createStaffPerformanceRecord,
@@ -235,6 +235,11 @@ router.patch("/suppliers/:supplierId/payments", verifyToken(["Store"]), addSuppl
 
 // Order tracking status update
 router.patch("/orders/:orderId/tracking", verifyToken(["Store"]), updateOrderTrackingStatus);
+router.get('/audit/logs', verifyToken(['Store']), getStoreAuditLogs);
+router.get('/audit/logs/export', verifyToken(['Store']), exportStoreAuditLogsCsv);
+router.get('/reports/daily-close', verifyToken(['Store']), getDailyCloseReport);
+router.get('/reports/prescription-turnaround', verifyToken(['Store']), getPrescriptionTurnaroundReport);
+router.get('/reports/inventory-risk', verifyToken(['Store']), getInventoryRiskReport);
 
 // Vaccination routes
 router.post("/vaccinations", verifyToken(["User"]), upsertUserVaccination);
@@ -243,6 +248,8 @@ router.get("/vaccination-master", verifyToken(["User"]), getVaccinationMaster);
 router.get("/user-vaccinations", verifyToken(["User"]), getUserVaccinationsForDashboard);
 router.put("/user-vaccinations/:vaccinationId", verifyToken(["User"]), updateUserVaccinationByMasterId);
 router.get('/medicines-by-store/:storeId', getMedicinesByStore);
+router.get('/manufacturers', verifyToken(['Store']), getStoreManufacturers);
+router.post('/manufacturers', verifyToken(['Store']), createStoreManufacturer);
 router.get('/store-inventory', verifyToken(['Store']), getStoreInventory);
 router.post('/store-inventory', verifyToken(['Store']), createStoreInventoryMedicine);
 router.put('/store-inventory/:medicineId', verifyToken(['Store']), updateStoreInventoryMedicine);

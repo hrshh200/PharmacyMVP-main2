@@ -19,6 +19,8 @@ const UserQuery = require("../models/userQuery");
 const PrescriptionRequest = require("../models/prescriptionRequest");
 const Prescription = require("../models/prescription");
 const Cart = require("../models/cart");
+const AuditLog = require("../models/auditLog");
+const StoreManufacturer = require("../models/storeManufacturer");
 const { sendUserNotification, sendEmailNotification } = require("../utils/notificationService");
 const {
     isS3Ready,
@@ -89,6 +91,83 @@ const runInBackground = (label, task) => {
             console.error(`[BackgroundTask][${label}] Failed:`, error?.message || error);
         }
     });
+};
+
+const toCsvCell = (value) => {
+    const normalized = value === null || value === undefined ? "" : String(value);
+    return `"${normalized.replace(/"/g, '""')}"`;
+};
+
+const toCsv = (rows = [], headers = []) => {
+    const headerLine = headers.map((header) => toCsvCell(header.label)).join(",");
+    const bodyLines = rows.map((row) => headers.map((header) => toCsvCell(row[header.key])).join(","));
+    return [headerLine, ...bodyLines].join("\n");
+};
+
+const resolveDateRange = ({ from, to } = {}) => {
+    const now = new Date();
+    const defaultFrom = new Date(now);
+    defaultFrom.setDate(defaultFrom.getDate() - 6);
+    defaultFrom.setHours(0, 0, 0, 0);
+
+    const start = from ? new Date(from) : defaultFrom;
+    const end = to ? new Date(to) : new Date(now);
+    end.setHours(23, 59, 59, 999);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return null;
+    }
+
+    return {
+        start,
+        end,
+    };
+};
+
+const resolveActorContext = async ({ req, storeId }) => {
+    const staffId = String(req.user?.staffId || req.headers["x-staff-id"] || "").trim();
+    const authUserId = req.user?.authUserId || null;
+
+    if (staffId) {
+        const staff = await StoreStaff.findOne({ _id: staffId, storeId }).select("_id firstName lastName role").lean();
+        if (staff) {
+            return {
+                staffId: staff._id,
+                name: `${staff.firstName || ""} ${staff.lastName || ""}`.trim() || "Staff",
+                role: staff.role || "Pharmacist",
+                authUserId,
+            };
+        }
+    }
+
+    return {
+        staffId: null,
+        name: req.user?.ownerName || req.user?.storeName || "Store Admin",
+        role: "Store Admin",
+        authUserId,
+    };
+};
+
+const logStoreAuditEvent = async ({ req, storeId, action, entityType, entityId, description, changes = {} }) => {
+    try {
+        const actor = await resolveActorContext({ req, storeId });
+        await AuditLog.create({
+            storeId,
+            action,
+            entityType,
+            entityId: String(entityId || ""),
+            description: String(description || "").trim(),
+            changes,
+            actor,
+            source: {
+                ipAddress: String(req.ip || req.headers["x-forwarded-for"] || "").trim(),
+                userAgent: String(req.headers["user-agent"] || "").trim(),
+            },
+            occurredAt: new Date(),
+        });
+    } catch (auditError) {
+        console.error("Failed to write audit log:", auditError?.message || auditError);
+    }
 };
 
 const resolvePrescriptionFileUrls = async (prescriptions) => {
@@ -1612,6 +1691,97 @@ const getStoreInventory = async (req, res) => {
     }
 };
 
+const getStoreManufacturers = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        if (!storeId) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: 'Unauthorized store access' });
+        }
+
+        const rows = await StoreManufacturer.find({ storeId, isActive: true })
+            .sort({ name: 1 })
+            .lean();
+
+        return res.status(StatusCodes.OK).json({
+            manufacturers: rows.map((item) => ({
+                _id: item._id,
+                name: item.name,
+                notes: item.notes || '',
+                createdAt: item.createdAt,
+            })),
+        });
+    } catch (error) {
+        console.error('getStoreManufacturers error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to fetch manufacturers' });
+    }
+};
+
+const createStoreManufacturer = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        const roleCode = Number(req.user?.roleCode || ROLE_CODES.STORE_ADMIN);
+        const { name = '', notes = '' } = req.body;
+
+        if (!storeId) {
+            return res.status(StatusCodes.UNAUTHORIZED).json({ message: 'Unauthorized store access' });
+        }
+
+        if (roleCode !== ROLE_CODES.STORE_ADMIN) {
+            return res.status(StatusCodes.FORBIDDEN).json({ message: 'Only Store Admin can add manufacturer details' });
+        }
+
+        const trimmedName = String(name || '').trim();
+        if (!trimmedName) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Manufacturer name is required' });
+        }
+
+        const normalizedName = trimmedName.toLowerCase();
+        const existing = await StoreManufacturer.findOne({ storeId, normalizedName }).lean();
+        if (existing) {
+            return res.status(StatusCodes.CONFLICT).json({ message: 'Manufacturer already exists' });
+        }
+
+        const manufacturer = await StoreManufacturer.create({
+            storeId,
+            name: trimmedName,
+            normalizedName,
+            notes: String(notes || '').trim(),
+            isActive: true,
+        });
+
+        await logStoreAuditEvent({
+            req,
+            storeId,
+            action: 'MANUFACTURER_CREATE',
+            entityType: 'Manufacturer',
+            entityId: manufacturer._id,
+            description: `Added manufacturer ${manufacturer.name}`,
+            changes: {
+                current: {
+                    name: manufacturer.name,
+                    notes: manufacturer.notes,
+                },
+            },
+        });
+
+        return res.status(StatusCodes.CREATED).json({
+            message: 'Manufacturer added successfully',
+            manufacturer: {
+                _id: manufacturer._id,
+                name: manufacturer.name,
+                notes: manufacturer.notes,
+                createdAt: manufacturer.createdAt,
+            },
+        });
+    } catch (error) {
+        if (error?.code === 11000) {
+            return res.status(StatusCodes.CONFLICT).json({ message: 'Manufacturer already exists' });
+        }
+        console.error('createStoreManufacturer error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to add manufacturer' });
+    }
+};
+
 const createStoreInventoryMedicine = async (req, res) => {
     try {
         const storeId = req.user?._id;
@@ -1636,6 +1806,25 @@ const createStoreInventoryMedicine = async (req, res) => {
             type: String(type || '').trim(),
             price: normalizedPrice,
             stock: normalizedStock,
+        });
+
+        await logStoreAuditEvent({
+            req,
+            storeId,
+            action: 'INVENTORY_CREATE',
+            entityType: 'InventoryItem',
+            entityId: medicine._id,
+            description: `Created inventory item ${medicine.name}`,
+            changes: {
+                current: {
+                    name: medicine.name,
+                    manufacturer: medicine.manufacturer,
+                    dosage: medicine.dosage,
+                    type: medicine.type,
+                    price: medicine.price,
+                    stock: medicine.stock,
+                },
+            },
         });
 
         return res.status(StatusCodes.CREATED).json({
@@ -1674,22 +1863,84 @@ const updateStoreInventoryMedicine = async (req, res) => {
             return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Medicine name is required' });
         }
 
-        const medicine = await Pharmacy.findOneAndUpdate(
-            { _id: medicineId, storeId },
-            { $set: updatePayload },
-            { new: true, runValidators: true }
-        );
+        const existingMedicine = await Pharmacy.findOne({ _id: medicineId, storeId });
 
-        if (!medicine) {
+        if (!existingMedicine) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Medicine not found for your store' });
+        }
+
+        const previousSnapshot = {
+            name: existingMedicine.name,
+            manufacturer: existingMedicine.manufacturer,
+            dosage: existingMedicine.dosage,
+            type: existingMedicine.type,
+            price: existingMedicine.price,
+            stock: existingMedicine.stock,
+        };
+
+        Object.keys(updatePayload).forEach((key) => {
+            existingMedicine[key] = updatePayload[key];
+        });
+
+        await existingMedicine.save();
+
+        const currentSnapshot = {
+            name: existingMedicine.name,
+            manufacturer: existingMedicine.manufacturer,
+            dosage: existingMedicine.dosage,
+            type: existingMedicine.type,
+            price: existingMedicine.price,
+            stock: existingMedicine.stock,
+        };
+
+        const changedKeys = Object.keys(currentSnapshot).filter((key) => previousSnapshot[key] !== currentSnapshot[key]);
+        const diff = changedKeys.reduce((acc, key) => {
+            acc[key] = { before: previousSnapshot[key], after: currentSnapshot[key] };
+            return acc;
+        }, {});
+
+        if (diff.price) {
+            await logStoreAuditEvent({
+                req,
+                storeId,
+                action: 'INVENTORY_PRICE_EDIT',
+                entityType: 'InventoryItem',
+                entityId: existingMedicine._id,
+                description: `Updated price for ${existingMedicine.name}`,
+                changes: { price: diff.price },
+            });
+        }
+
+        if (diff.stock) {
+            await logStoreAuditEvent({
+                req,
+                storeId,
+                action: 'INVENTORY_STOCK_EDIT',
+                entityType: 'InventoryItem',
+                entityId: existingMedicine._id,
+                description: `Updated stock for ${existingMedicine.name}`,
+                changes: { stock: diff.stock },
+            });
+        }
+
+        if (changedKeys.length) {
+            await logStoreAuditEvent({
+                req,
+                storeId,
+                action: 'INVENTORY_UPDATE',
+                entityType: 'InventoryItem',
+                entityId: existingMedicine._id,
+                description: `Updated inventory item ${existingMedicine.name}`,
+                changes: diff,
+            });
         }
 
         return res.status(StatusCodes.OK).json({
             success: true,
             message: 'Inventory item updated',
             medicine: {
-                ...medicine.toObject(),
-                status: computeInventoryStatus(medicine.stock),
+                ...existingMedicine.toObject(),
+                status: computeInventoryStatus(existingMedicine.stock),
             },
         });
     } catch (error) {
@@ -1712,6 +1963,25 @@ const deleteStoreInventoryMedicine = async (req, res) => {
         if (!deleted) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Medicine not found for your store' });
         }
+
+        await logStoreAuditEvent({
+            req,
+            storeId,
+            action: 'INVENTORY_DELETE',
+            entityType: 'InventoryItem',
+            entityId: deleted._id,
+            description: `Deleted inventory item ${deleted.name}`,
+            changes: {
+                removed: {
+                    name: deleted.name,
+                    manufacturer: deleted.manufacturer,
+                    dosage: deleted.dosage,
+                    type: deleted.type,
+                    price: deleted.price,
+                    stock: deleted.stock,
+                },
+            },
+        });
 
         return res.status(StatusCodes.OK).json({
             success: true,
@@ -2414,6 +2684,11 @@ const reviewPrescriptionRequest = async (req, res) => {
             return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid quoteExpiresAt value' });
         }
 
+        const existingPrescription = await PrescriptionRequest.findById(id).select('status reviewNotes userId');
+        if (!existingPrescription) {
+            return res.status(StatusCodes.NOT_FOUND).json({ message: 'Prescription request not found' });
+        }
+
         const updated = await PrescriptionRequest.findByIdAndUpdate(
             id,
             {
@@ -2436,6 +2711,25 @@ const reviewPrescriptionRequest = async (req, res) => {
         if (!updated) {
             return res.status(StatusCodes.NOT_FOUND).json({ message: 'Prescription request not found' });
         }
+
+        await logStoreAuditEvent({
+            req,
+            storeId,
+            action: 'PRESCRIPTION_STATUS_CHANGE',
+            entityType: 'PrescriptionRequest',
+            entityId: updated._id,
+            description: `Prescription marked as ${status}`,
+            changes: {
+                status: {
+                    before: existingPrescription.status,
+                    after: status,
+                },
+                reviewNotes: {
+                    before: existingPrescription.reviewNotes || '',
+                    after: reviewNotes || '',
+                },
+            },
+        });
 
         const patientName = updated?.userId?.name || 'Patient';
         const normalizedStatus = String(status || '').toLowerCase();
@@ -2688,6 +2982,22 @@ const updateOrderTrackingStatus = async (req, res) => {
         order.trackingStatus = trackingStatus;
         await order.save();
 
+        await logStoreAuditEvent({
+            req,
+            storeId,
+            action: 'ORDER_STATUS_CHANGE',
+            entityType: 'Order',
+            entityId: order.orderId,
+            description: `Order ${order.orderId} moved to ${trackingStatus}`,
+            changes: {
+                trackingStatus: {
+                    before: currentStatus,
+                    after: trackingStatus,
+                },
+                deliveryType: deliveryType || order.deliveryType,
+            },
+        });
+
         runInBackground('order-tracking-notification', async () => {
             await triggerUserNotifications({
                 userId: order.userId,
@@ -2753,6 +3063,305 @@ const getOrderById = async (req, res) => {
     } catch (error) {
         console.error('getOrderById error:', error);
         return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to fetch order' });
+    }
+};
+
+const getStoreAuditLogs = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        const { user = '', action = '', from = '', to = '', page = 1, limit = 100 } = req.query;
+
+        const query = { storeId };
+        if (String(action || '').trim()) {
+            query.action = String(action).trim();
+        }
+        if (String(user || '').trim()) {
+            query['actor.name'] = { $regex: String(user).trim(), $options: 'i' };
+        }
+
+        const dateRange = resolveDateRange({ from, to });
+        if (!dateRange) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid date range' });
+        }
+        query.occurredAt = { $gte: dateRange.start, $lte: dateRange.end };
+
+        const normalizedPage = Math.max(1, Number(page) || 1);
+        const normalizedLimit = Math.min(500, Math.max(10, Number(limit) || 100));
+        const skip = (normalizedPage - 1) * normalizedLimit;
+
+        const [logs, total] = await Promise.all([
+            AuditLog.find(query)
+                .sort({ occurredAt: -1 })
+                .skip(skip)
+                .limit(normalizedLimit)
+                .lean(),
+            AuditLog.countDocuments(query),
+        ]);
+
+        return res.status(StatusCodes.OK).json({
+            logs,
+            pagination: {
+                page: normalizedPage,
+                limit: normalizedLimit,
+                total,
+                pages: Math.ceil(total / normalizedLimit),
+            },
+        });
+    } catch (error) {
+        console.error('getStoreAuditLogs error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to fetch audit logs' });
+    }
+};
+
+const exportStoreAuditLogsCsv = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        const { user = '', action = '', from = '', to = '' } = req.query;
+        const query = { storeId };
+
+        if (String(action || '').trim()) {
+            query.action = String(action).trim();
+        }
+        if (String(user || '').trim()) {
+            query['actor.name'] = { $regex: String(user).trim(), $options: 'i' };
+        }
+
+        const dateRange = resolveDateRange({ from, to });
+        if (!dateRange) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid date range' });
+        }
+        query.occurredAt = { $gte: dateRange.start, $lte: dateRange.end };
+
+        const logs = await AuditLog.find(query).sort({ occurredAt: -1 }).limit(5000).lean();
+        const rows = logs.map((log) => ({
+            occurredAt: log.occurredAt ? new Date(log.occurredAt).toISOString() : '',
+            user: log?.actor?.name || 'Store Admin',
+            role: log?.actor?.role || 'Store Admin',
+            action: log.action,
+            entityType: log.entityType,
+            entityId: log.entityId,
+            description: log.description,
+            changes: JSON.stringify(log.changes || {}),
+        }));
+
+        const csv = toCsv(rows, [
+            { key: 'occurredAt', label: 'Occurred At' },
+            { key: 'user', label: 'User' },
+            { key: 'role', label: 'Role' },
+            { key: 'action', label: 'Action' },
+            { key: 'entityType', label: 'Entity Type' },
+            { key: 'entityId', label: 'Entity ID' },
+            { key: 'description', label: 'Description' },
+            { key: 'changes', label: 'Changes' },
+        ]);
+
+        const today = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="audit-logs-${today}.csv"`);
+        return res.status(StatusCodes.OK).send(csv);
+    } catch (error) {
+        console.error('exportStoreAuditLogsCsv error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to export audit logs' });
+    }
+};
+
+const getDailyCloseReport = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        const { date = '', format = 'json' } = req.query;
+        const day = date ? new Date(`${date}T00:00:00`) : new Date();
+        if (Number.isNaN(day.getTime())) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid date' });
+        }
+
+        const dayStart = new Date(day);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(day);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const [dailyOrders, reviewedPrescriptions, pendingPrescriptions] = await Promise.all([
+            Order.find({ storeId, createdAt: { $gte: dayStart, $lte: dayEnd } }).lean(),
+            PrescriptionRequest.find({
+                reviewedByStoreId: storeId,
+                reviewedAt: { $gte: dayStart, $lte: dayEnd },
+                status: { $in: ['approved', 'rejected', 'ordered'] },
+            }).lean(),
+            PrescriptionRequest.countDocuments({ status: 'pending', createdAt: { $gte: dayStart, $lte: dayEnd } }),
+        ]);
+
+        const revenue = dailyOrders.reduce((sum, order) => sum + (Number(order.totalPrice) || 0), 0);
+        const rejectedCount = reviewedPrescriptions.filter((item) => String(item.status).toLowerCase() === 'rejected').length;
+        const pendingOrders = dailyOrders.filter((order) => {
+            const normalizedStatus = String(order.trackingStatus || '').toLowerCase();
+            return !(normalizedStatus.includes('delivered') || normalizedStatus.includes('picked up'));
+        }).length;
+
+        const report = {
+            date: dayStart.toISOString().slice(0, 10),
+            totalOrders: dailyOrders.length,
+            totalRevenue: Math.round(revenue * 100) / 100,
+            rejectedPrescriptions: rejectedCount,
+            pendingPrescriptions,
+            pendingOrders,
+        };
+
+        if (String(format).toLowerCase() === 'csv') {
+            const csv = toCsv([report], [
+                { key: 'date', label: 'Date' },
+                { key: 'totalOrders', label: 'Total Orders' },
+                { key: 'totalRevenue', label: 'Total Revenue' },
+                { key: 'rejectedPrescriptions', label: 'Rejected Prescriptions' },
+                { key: 'pendingPrescriptions', label: 'Pending Prescriptions' },
+                { key: 'pendingOrders', label: 'Pending Orders' },
+            ]);
+
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="daily-close-${report.date}.csv"`);
+            return res.status(StatusCodes.OK).send(csv);
+        }
+
+        return res.status(StatusCodes.OK).json({ report });
+    } catch (error) {
+        console.error('getDailyCloseReport error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to generate daily close report' });
+    }
+};
+
+const getPrescriptionTurnaroundReport = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        const { from = '', to = '', format = 'json' } = req.query;
+        const dateRange = resolveDateRange({ from, to });
+        if (!dateRange) {
+            return res.status(StatusCodes.BAD_REQUEST).json({ message: 'Invalid date range' });
+        }
+
+        const reviewed = await PrescriptionRequest.find({
+            reviewedByStoreId: storeId,
+            reviewedAt: { $gte: dateRange.start, $lte: dateRange.end },
+            status: { $in: ['approved', 'rejected', 'ordered'] },
+        })
+            .populate('userId', 'name email')
+            .sort({ reviewedAt: -1 })
+            .lean();
+
+        const pendingCount = await PrescriptionRequest.countDocuments({
+            status: 'pending',
+            createdAt: { $gte: dateRange.start, $lte: dateRange.end },
+        });
+
+        const rows = reviewed.map((item) => {
+            const createdAt = new Date(item.createdAt);
+            const reviewedAt = new Date(item.reviewedAt);
+            const hours = Math.max(0, (reviewedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60));
+            return {
+                prescriptionId: String(item._id),
+                patientName: item?.userId?.name || 'Unknown',
+                status: item.status,
+                reviewedBy: item.reviewedByName || item.reviewedByRole || 'Store Admin',
+                createdAt: createdAt.toISOString(),
+                reviewedAt: reviewedAt.toISOString(),
+                turnaroundHours: Number(hours.toFixed(2)),
+            };
+        });
+
+        const durations = rows.map((row) => row.turnaroundHours);
+        const totalHours = durations.reduce((sum, value) => sum + value, 0);
+        const summary = {
+            rangeStart: dateRange.start.toISOString().slice(0, 10),
+            rangeEnd: dateRange.end.toISOString().slice(0, 10),
+            reviewedCount: rows.length,
+            pendingCount,
+            avgTurnaroundHours: rows.length ? Number((totalHours / rows.length).toFixed(2)) : 0,
+            minTurnaroundHours: rows.length ? Number(Math.min(...durations).toFixed(2)) : 0,
+            maxTurnaroundHours: rows.length ? Number(Math.max(...durations).toFixed(2)) : 0,
+        };
+
+        if (String(format).toLowerCase() === 'csv') {
+            const csv = toCsv(rows, [
+                { key: 'prescriptionId', label: 'Prescription ID' },
+                { key: 'patientName', label: 'Patient Name' },
+                { key: 'status', label: 'Status' },
+                { key: 'reviewedBy', label: 'Reviewed By' },
+                { key: 'createdAt', label: 'Created At' },
+                { key: 'reviewedAt', label: 'Reviewed At' },
+                { key: 'turnaroundHours', label: 'Turnaround Hours' },
+            ]);
+
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="prescription-turnaround-${summary.rangeStart}-to-${summary.rangeEnd}.csv"`);
+            return res.status(StatusCodes.OK).send(csv);
+        }
+
+        return res.status(StatusCodes.OK).json({ summary, rows });
+    } catch (error) {
+        console.error('getPrescriptionTurnaroundReport error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to generate prescription turnaround report' });
+    }
+};
+
+const getInventoryRiskReport = async (req, res) => {
+    try {
+        const storeId = req.user?._id;
+        const { format = 'json', lowStockThreshold = 20 } = req.query;
+        const threshold = Math.max(1, Number(lowStockThreshold) || 20);
+
+        const inventory = await Pharmacy.find({ storeId }).sort({ stock: 1, name: 1 }).lean();
+        const outOfStock = inventory.filter((item) => (Number(item.stock) || 0) <= 0);
+        const nearStockout = inventory.filter((item) => {
+            const qty = Number(item.stock) || 0;
+            return qty > 0 && qty <= threshold;
+        });
+
+        const summary = {
+            totalItems: inventory.length,
+            outOfStockCount: outOfStock.length,
+            nearStockoutCount: nearStockout.length,
+            lowStockThreshold: threshold,
+        };
+
+        if (String(format).toLowerCase() === 'csv') {
+            const rows = [
+                ...outOfStock.map((item) => ({
+                    riskType: 'Out of Stock',
+                    medicineName: item.name,
+                    manufacturer: item.manufacturer || '',
+                    dosage: item.dosage || '',
+                    type: item.type || '',
+                    stock: Number(item.stock) || 0,
+                    price: Number(item.price) || 0,
+                })),
+                ...nearStockout.map((item) => ({
+                    riskType: 'Near Stockout',
+                    medicineName: item.name,
+                    manufacturer: item.manufacturer || '',
+                    dosage: item.dosage || '',
+                    type: item.type || '',
+                    stock: Number(item.stock) || 0,
+                    price: Number(item.price) || 0,
+                })),
+            ];
+
+            const csv = toCsv(rows, [
+                { key: 'riskType', label: 'Risk Type' },
+                { key: 'medicineName', label: 'Medicine Name' },
+                { key: 'manufacturer', label: 'Manufacturer' },
+                { key: 'dosage', label: 'Dosage' },
+                { key: 'type', label: 'Type' },
+                { key: 'stock', label: 'Stock' },
+                { key: 'price', label: 'Price' },
+            ]);
+
+            const today = new Date().toISOString().slice(0, 10);
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="inventory-risk-${today}.csv"`);
+            return res.status(StatusCodes.OK).send(csv);
+        }
+
+        return res.status(StatusCodes.OK).json({ summary, outOfStock, nearStockout });
+    } catch (error) {
+        console.error('getInventoryRiskReport error:', error);
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: 'Failed to generate inventory risk report' });
     }
 };
 
@@ -5875,6 +6484,7 @@ module.exports = {
     uploadPrescriptionRequest, reuploadPrescriptionRequest, getMyPrescriptionRequests, getStorePrescriptionRequests, reviewPrescriptionRequest, getPrescriptionCheckout, placePrescriptionOrder,
     getStoreOrders, updateOrderTrackingStatus, getMyOrders, getOrderById, getStoreStaffMembers, createStoreStaffMember, updateStoreStaffMember, updateStoreStaffStatus, deleteStoreStaffMember, getCart, seedVaccinationMasterIfEmpty, upsertUserVaccination, getUserVaccinations, getVaccinationMaster, getUserVaccinationsForDashboard, updateUserVaccinationByMasterId, createUserQuery, getUserQueries, getStoreQueries, answerStoreQuery, importPatientsFromCsv,
     getMedicinesByStore,
+    getStoreManufacturers, createStoreManufacturer,
     getStoreInventory, createStoreInventoryMedicine, updateStoreInventoryMedicine, deleteStoreInventoryMedicine,
     createReview, updateReview, deleteReview, getPublicReviews, getStoreReviews, getMyReviews, getMyStoreReviews, replyToReview,
     uploadPrescriptionForAutoFill, extractMedicinesFromUploadedPrescription, getUserPrescriptionUploads, addExtractedMedicinesToCart,
@@ -5889,7 +6499,9 @@ module.exports = {
     createSupplier, getSuppliers, updateSupplier, deleteSupplier, addSupplierPayment,
     getProfitMarginReport, getTaxReport,
     createPromotionalCampaign, getPromotionalCampaigns, updatePromotionalCampaignStatus, deletePromotionalCampaign,
-    getPublicPromotionalCampaigns, validatePublicCoupon
+    getPublicPromotionalCampaigns, validatePublicCoupon,
+    getStoreAuditLogs, exportStoreAuditLogsCsv,
+    getDailyCloseReport, getPrescriptionTurnaroundReport, getInventoryRiskReport,
 };
 
 const STAFF_ROLE_PERMISSIONS = {
@@ -5964,10 +6576,19 @@ const hasPermission = (permissions = [], requiredPermission) => {
 };
 
 const enforceRolePermission = async ({ req, storeId, requiredPermission }) => {
-    const delegatedStaffId = req.headers["x-staff-id"];
+    const delegatedStaffId = String(req.headers["x-staff-id"] || req.user?.staffId || "").trim();
+    const roleCode = Number(req.user?.roleCode || ROLE_CODES.STORE_ADMIN);
+    const isStaffSession = roleCode === ROLE_CODES.PHARMACIST || roleCode === ROLE_CODES.OPERATOR;
 
     // Store owners are granted full access to store operations.
     if (!delegatedStaffId) {
+        if (isStaffSession) {
+            return {
+                allowed: false,
+                statusCode: StatusCodes.UNAUTHORIZED,
+                message: "Staff context missing for delegated access",
+            };
+        }
         return { allowed: true, isOwner: true, staffMember: null, permissions: [] };
     }
 
