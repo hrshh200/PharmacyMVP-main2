@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import Navbar from '../components/Navbar';
@@ -30,10 +30,16 @@ import {
   CameraOff,
   BadgePercent,
   Plus,
+  Home,
+  AlertCircle,
+  TrendingUp,
+  Clock,
+  Eye,
+  RefreshCw,
 } from 'lucide-react';
 
 const StoreDashboard = () => {
-  const [selectedSection, setSelectedSection] = useState('staff');
+  const [selectedSection, setSelectedSection] = useState('home');
   const [dashboardAccessRole, setDashboardAccessRole] = useState('Store Admin');
   const [storeName, setStoreName] = useState('');
   const [storeProfile, setStoreProfile] = useState({
@@ -60,7 +66,6 @@ const StoreDashboard = () => {
     pincode: '',
   });
   const [storeProfileSaving, setStoreProfileSaving] = useState(false);
-  const [storeDataLoading, setStoreDataLoading] = useState(false);
   const [loggedInAccount, setLoggedInAccount] = useState({
     staffId: '',
     name: '',
@@ -345,6 +350,8 @@ const StoreDashboard = () => {
   const [showPendingReviewWorkspace, setShowPendingReviewWorkspace] = useState(false);
   const [prescriptionReviewerFilter, setPrescriptionReviewerFilter] = useState('all');
   const [reviewerSearchQuery, setReviewerSearchQuery] = useState('');
+  const PRESCRIPTION_MED_SEARCH_MIN_CHARS = 3;
+  const normalizeMedicineSearchValue = (value) => String(value || '').trim().toLowerCase();
   const createEmptyApprovalItem = () => ({
     medicineId: '',
     name: '',
@@ -354,8 +361,11 @@ const StoreDashboard = () => {
     instructions: '',
     substitutionReason: '',
   });
-  const [approvalItems, setApprovalItems] = useState([createEmptyApprovalItem()]);
+  const [approvalItems, setApprovalItems] = useState([]);
   const [approvalReviewNotes, setApprovalReviewNotes] = useState('');
+  const [showApprovalItemsSection, setShowApprovalItemsSection] = useState(false);
+  const [expandedSectionGroup, setExpandedSectionGroup] = useState('');
+  const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [approvalTotalsDraft, setApprovalTotalsDraft] = useState({
     subtotal: '0',
     discount: '0',
@@ -365,6 +375,35 @@ const StoreDashboard = () => {
     currency: 'INR',
     quoteExpiresInHours: '24',
   });
+  const prescriptionMedicineOptions = useMemo(
+    () => (inventoryItems || [])
+      .map((medicine) => ({
+        id: String(medicine._id || ''),
+        name: String(medicine.name || '').trim(),
+        manufacturer: String(medicine.manufacturer || '').trim(),
+        dosage: String(medicine.dosage || '').trim(),
+        type: String(medicine.type || '').trim(),
+        price: Number(medicine.price) || 0,
+      }))
+      .filter((medicine) => medicine.id && medicine.name),
+    [inventoryItems]
+  );
+
+  const getPrescriptionMedicineSuggestions = (query) => {
+    const normalizedQuery = normalizeMedicineSearchValue(query);
+    if (normalizedQuery.length < PRESCRIPTION_MED_SEARCH_MIN_CHARS) return [];
+
+    return prescriptionMedicineOptions
+      .filter((medicine) => {
+        const normalizedName = normalizeMedicineSearchValue(medicine.name);
+        const normalizedManufacturer = normalizeMedicineSearchValue(medicine.manufacturer);
+        const normalizedDosage = normalizeMedicineSearchValue(medicine.dosage);
+        return normalizedName.includes(normalizedQuery)
+          || normalizedManufacturer.includes(normalizedQuery)
+          || normalizedDosage.includes(normalizedQuery);
+      })
+      .slice(0, 8);
+  };
   const selectedPrescription = prescriptions.find((item) => item._id === selectedPrescriptionId);
   const selectedPrescriptionStatus = String(selectedPrescription?.status || 'pending').toLowerCase();
   const selectedPendingPrescription = selectedPrescriptionStatus === 'pending' ? selectedPrescription : null;
@@ -387,6 +426,56 @@ const StoreDashboard = () => {
     return reviewerName.toLowerCase().includes(reviewerSearchNormalized);
   });
   const selectedPrescriptionFileUrl = resolveFileUrl(selectedPrescription?.filePath);
+  const normalizePrescriptionStatus = (value) => String(value || '').trim().toLowerCase();
+  const isToday = (value) => {
+    if (!value) return false;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return false;
+    const now = new Date();
+    return parsed.getFullYear() === now.getFullYear()
+      && parsed.getMonth() === now.getMonth()
+      && parsed.getDate() === now.getDate();
+  };
+  const todayOrders = orders.filter((order) => isToday(order.createdAt || order.updatedAt));
+  const todayOrderCount = todayOrders.length;
+  const todayRevenue = todayOrders.reduce((sum, order) => {
+    const amount = Number(order.grandTotal ?? order.totalPrice ?? order.total ?? 0);
+    return sum + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
+  const pendingPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'pending').length;
+  const approvedPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'approved').length;
+  const reviewedPrescriptionCount = prescriptions.filter((p) => {
+    const status = normalizePrescriptionStatus(p.status);
+    return status === 'approved' || status === 'rejected';
+  }).length;
+  const rejectedPrescriptionCount = prescriptions.filter((p) => normalizePrescriptionStatus(p.status) === 'rejected').length;
+  const approvalRate = reviewedPrescriptionCount > 0
+    ? Math.round((approvedPrescriptionCount / reviewedPrescriptionCount) * 100)
+    : 0;
+  const approvedTodayCount = prescriptions.filter((p) => {
+    return normalizePrescriptionStatus(p.status) === 'approved' && isToday(p.reviewedAt || p.updatedAt);
+  }).length;
+  const rejectedTodayCount = prescriptions.filter((p) => {
+    return normalizePrescriptionStatus(p.status) === 'rejected' && isToday(p.reviewedAt || p.updatedAt);
+  }).length;
+  const pendingOver24hCount = prescriptions.filter((p) => {
+    if (normalizePrescriptionStatus(p.status) !== 'pending') return false;
+    const createdAt = new Date(p.createdAt || p.updatedAt || Date.now());
+    return Date.now() - createdAt.getTime() >= 24 * 60 * 60 * 1000;
+  }).length;
+  const avgReviewHours = reviewedPrescriptionCount
+    ? (prescriptions
+      .filter((p) => {
+        const status = normalizePrescriptionStatus(p.status);
+        return (status === 'approved' || status === 'rejected') && p.createdAt && p.reviewedAt;
+      })
+      .reduce((sum, p) => {
+        const createdAt = new Date(p.createdAt).getTime();
+        const reviewedAt = new Date(p.reviewedAt).getTime();
+        if (Number.isNaN(createdAt) || Number.isNaN(reviewedAt) || reviewedAt < createdAt) return sum;
+        return sum + ((reviewedAt - createdAt) / (1000 * 60 * 60));
+      }, 0) / reviewedPrescriptionCount)
+    : 0;
   const [patientsCsvFile, setPatientsCsvFile] = useState(null);
   const [csvUploadMessage, setCsvUploadMessage] = useState('');
   const [csvImporting, setCsvImporting] = useState(false);
@@ -967,7 +1056,6 @@ const StoreDashboard = () => {
     if (!token) return;
 
     try {
-      setStoreDataLoading(true);
       const response = await axios.get(`${baseURL}/fetchdata`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1034,8 +1122,6 @@ const StoreDashboard = () => {
       setStoreProfileDraft(profileData);
     } catch (error) {
       console.error('Failed to load store data:', error.message);
-    } finally {
-      setStoreDataLoading(false);
     }
   };
 
@@ -1501,6 +1587,7 @@ const StoreDashboard = () => {
   };
 
   const sectionConfig = [
+    { key: 'home', label: 'Dashboard Overview', icon: Home },
     { key: 'staff', label: 'Staff Members', icon: Users },
     { key: 'promotions', label: 'Promotions', icon: BadgePercent },
     { key: 'importPatients', label: 'Import Patients', icon: FileUp },
@@ -1515,13 +1602,55 @@ const StoreDashboard = () => {
   ];
 
   const roleSectionAccess = {
-    'Store Admin': ['staff', 'promotions', 'importPatients', 'inventory', 'orders', 'financialManagement', 'prescription', 'queries', 'reviews', 'myProfile', 'reports'],
-    Pharmacist: ['prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
-    Operator: ['prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
+    'Store Admin': ['home', 'staff', 'promotions', 'importPatients', 'inventory', 'orders', 'financialManagement', 'prescription', 'queries', 'reviews', 'myProfile', 'reports'],
+    Pharmacist: ['home', 'prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
+    Operator: ['home', 'prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
   };
 
   const allowedSectionKeys = roleSectionAccess[dashboardAccessRole] || roleSectionAccess['Store Admin'];
   const visibleSectionConfig = sectionConfig.filter((section) => allowedSectionKeys.includes(section.key));
+  const sectionGroupConfig = useMemo(() => ([
+    { title: 'Overview', keys: ['home', 'reports'] },
+    { title: 'Operations', keys: ['inventory', 'orders', 'prescription', 'financialManagement'] },
+    { title: 'People & Communication', keys: ['staff', 'queries', 'reviews'] },
+    { title: 'Growth & Setup', keys: ['promotions', 'importPatients', 'myProfile'] },
+  ]), []);
+  const groupedVisibleSectionConfig = useMemo(() => {
+    const sectionByKey = visibleSectionConfig.reduce((acc, section) => {
+      acc[section.key] = section;
+      return acc;
+    }, {});
+
+    const grouped = sectionGroupConfig
+      .map((group) => ({
+        title: group.title,
+        sections: group.keys
+          .map((key) => sectionByKey[key])
+          .filter(Boolean),
+      }))
+      .filter((group) => group.sections.length > 0);
+
+    const groupedKeys = new Set(grouped.flatMap((group) => group.sections.map((section) => section.key)));
+    const remainingSections = visibleSectionConfig.filter((section) => !groupedKeys.has(section.key));
+
+    if (remainingSections.length) {
+      grouped.push({ title: 'Additional', sections: remainingSections });
+    }
+
+    return grouped;
+  }, [visibleSectionConfig, sectionGroupConfig]);
+  const activeSectionGroupTitle = useMemo(() => {
+    const matchedGroup = groupedVisibleSectionConfig.find((group) =>
+      group.sections.some((section) => section.key === selectedSection)
+    );
+    return matchedGroup?.title || groupedVisibleSectionConfig[0]?.title || '';
+  }, [groupedVisibleSectionConfig, selectedSection]);
+  const effectiveExpandedSectionGroup = expandedSectionGroup || activeSectionGroupTitle;
+
+  useEffect(() => {
+    if (!activeSectionGroupTitle) return;
+    setExpandedSectionGroup(activeSectionGroupTitle);
+  }, [activeSectionGroupTitle]);
 
   const prescriptionSummary = prescriptions.reduce(
     (acc, item) => {
@@ -1698,6 +1827,45 @@ const StoreDashboard = () => {
       toast.error('Failed to load inventory');
     } finally {
       setInventoryLoading(false);
+    }
+  };
+
+  const handleRefreshDashboard = async () => {
+    const token = localStorage.getItem('medVisionToken');
+    if (!token) {
+      toast.error('Please login again to refresh dashboard data.');
+      return;
+    }
+
+    try {
+      setDashboardRefreshing(true);
+      await Promise.allSettled([
+        loadStoreData(),
+        loadRolePermissions(),
+        loadStoreOrders(),
+        loadStorePrescriptions(),
+        loadStoreQueries(),
+        loadStoreReviews(),
+        loadStoreStaffMembers(),
+        loadStoreInventory(),
+      ]);
+
+      if (allowedSectionKeys.includes('financialManagement')) {
+        await Promise.allSettled([loadFinance(), loadSuppliers()]);
+      }
+      if (allowedSectionKeys.includes('promotions')) {
+        await loadPromotionalCampaigns();
+      }
+      if (allowedSectionKeys.includes('staff')) {
+        await Promise.allSettled([loadStaffOperations(), loadCompliance()]);
+      }
+
+      toast.success('Dashboard refreshed successfully.');
+    } catch (error) {
+      console.error('Failed to refresh dashboard:', error.message);
+      toast.error('Unable to refresh dashboard right now.');
+    } finally {
+      setDashboardRefreshing(false);
     }
   };
 
@@ -1996,6 +2164,12 @@ const StoreDashboard = () => {
     if (selectedSection === 'prescription' && allowedSectionKeys.includes('prescription')) {
       loadStorePrescriptions();
       loadStoreStaffMembers();
+      loadStoreInventory();
+    }
+    if (selectedSection === 'home') {
+      loadStoreOrders();
+      loadStorePrescriptions();
+      loadStoreInventory();
     }
     if (selectedSection === 'myProfile') {
       loadStoreStaffMembers();
@@ -2102,9 +2276,38 @@ const StoreDashboard = () => {
     setShowPendingReviewWorkspace(false);
   }, [prescriptionStatusFilter, selectedSection]);
 
+  useEffect(() => {
+    setShowApprovalItemsSection(false);
+  }, [selectedPrescriptionId, prescriptionStatusFilter, selectedSection]);
+
   const handleApprovalItemChange = (index, field, value) => {
     setApprovalItems((prev) =>
       prev.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item))
+    );
+  };
+
+  const handleApprovalMedicineNameInputChange = (index, value) => {
+    setApprovalItems((prev) =>
+      prev.map((item, itemIndex) => (
+        itemIndex === index
+          ? { ...item, name: value, medicineId: '' }
+          : item
+      ))
+    );
+  };
+
+  const applySuggestedMedicineToApprovalItem = (index, medicine) => {
+    setApprovalItems((prev) =>
+      prev.map((item, itemIndex) => (
+        itemIndex === index
+          ? {
+            ...item,
+            medicineId: medicine.id,
+            name: medicine.name,
+            unitPrice: String(medicine.price),
+          }
+          : item
+      ))
     );
   };
 
@@ -2256,22 +2459,8 @@ const StoreDashboard = () => {
   return (
     <div className="min-h-screen bg-slate-50">
       <Navbar />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12" style={{ paddingTop: 'calc(var(--app-navbar-offset, 88px) + 3rem)' }}>
-        <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-teal-900 p-6 text-white shadow-sm sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Store Operations Hub</p>
-              <h1 className="mt-3 text-3xl font-bold sm:text-4xl">
-                {storeDataLoading ? 'Loading...' : storeName || 'Pharmacy Store Dashboard'}
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-200 sm:text-base">
-                Manage staff, inventory, orders, prescriptions, and customer queries from one central control panel.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pb-12" style={{ paddingTop: 'calc(var(--app-navbar-offset, 88px) + 3rem)' }}>
+        <div className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
           <aside className="relative overflow-hidden rounded-3xl border border-slate-700 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 p-6 text-white shadow-xl">
             <div className="pointer-events-none absolute -right-16 -top-12 h-40 w-40 rounded-full bg-cyan-400/20 blur-3xl" />
             <div className="pointer-events-none absolute -left-14 bottom-6 h-32 w-32 rounded-full bg-blue-500/20 blur-3xl" />
@@ -2280,41 +2469,238 @@ const StoreDashboard = () => {
               <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-200">Store Navigation</p>
               <h2 className="mt-2 text-2xl font-bold">Control Panel</h2>
               <p className="mt-2 text-sm text-slate-300">Select a section to manage operations.</p>
-              <div className="mt-3 inline-flex items-center rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-100">
-                Access: {dashboardAccessRole}
+              <div className="mt-4 rounded-xl border border-cyan-300/35 bg-cyan-400/10 px-3 py-2 text-xs">
+                <p className="text-[10px] uppercase tracking-wide text-cyan-200">Access</p>
+                <p className="mt-0.5 font-semibold text-cyan-100">{dashboardAccessRole}</p>
               </div>
             </div>
 
-            <div className="relative space-y-2.5">
-              {visibleSectionConfig.map((section) => {
-                const Icon = section.icon;
-                const active = selectedSection === section.key;
-                return (
+            <div className="relative space-y-4">
+              {groupedVisibleSectionConfig.map((group) => (
+                <div key={group.title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                   <button
-                    key={section.key}
                     type="button"
-                    onClick={() => handleSelectSection(section.key)}
-                    className={`group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-900/30' : 'bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white'}`}
+                    onClick={() => setExpandedSectionGroup(group.title)}
+                    className="mb-2 flex w-full items-center justify-between rounded-lg px-1 py-1 text-left"
                   >
-                    <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl transition ${active ? 'bg-white/20' : 'bg-white/10 group-hover:bg-white/20'}`}>
-                      <Icon className={`${active ? 'text-white' : 'text-cyan-200 group-hover:text-white'}`} size={18} />
-                    </span>
-                    <span className="font-semibold tracking-wide">{section.label}</span>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">{group.title}</p>
+                    <ChevronRight
+                      size={14}
+                      className={`text-slate-300 transition ${effectiveExpandedSectionGroup === group.title ? 'rotate-90 text-cyan-200' : ''}`}
+                    />
                   </button>
-                );
-              })}
+                  {effectiveExpandedSectionGroup === group.title && (
+                    <div className="space-y-1.5">
+                      {group.sections.map((section) => {
+                        const Icon = section.icon;
+                        const active = selectedSection === section.key;
+                        return (
+                          <button
+                            key={section.key}
+                            type="button"
+                            onClick={() => handleSelectSection(section.key)}
+                            className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-md shadow-cyan-950/30' : 'bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white'}`}
+                          >
+                            <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition ${active ? 'bg-white/20' : 'bg-white/10 group-hover:bg-white/20'}`}>
+                              <Icon className={`${active ? 'text-white' : 'text-cyan-200 group-hover:text-white'}`} size={16} />
+                            </span>
+                            <span className="flex-1 font-semibold tracking-wide text-sm">{section.label}</span>
+                            <span className={`h-2 w-2 rounded-full transition ${active ? 'bg-white' : 'bg-transparent group-hover:bg-cyan-300'}`} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </aside>
 
-          <main ref={mainContentRef} className="space-y-6">
+          <main ref={mainContentRef} className="min-w-0 space-y-6">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm text-slate-500">Current View</p>
                   <h1 className="text-2xl font-semibold text-slate-900 capitalize">{visibleSectionConfig.find((item) => item.key === selectedSection)?.label || 'Overview'}</h1>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleRefreshDashboard}
+                  disabled={dashboardRefreshing}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw size={16} className={dashboardRefreshing ? 'animate-spin' : ''} />
+                  {dashboardRefreshing ? 'Refreshing...' : 'Refresh Dashboard'}
+                </button>
               </div>
             </div>
+
+            {selectedSection === 'home' && (
+              <div className="space-y-6">
+                {/* Low Stock Alert Widget */}
+                <div className="rounded-3xl border border-red-200 bg-gradient-to-br from-red-50 to-red-100 p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <AlertCircle className="text-red-600" size={24} />
+                    <h2 className="text-xl font-bold text-red-900">Low Stock Alerts</h2>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {inventoryItems.filter((item) => Number(item.stock || 0) === 0).slice(0, 6).map((medicine) => (
+                      <div key={medicine._id} className="rounded-lg border-2 border-red-400 bg-white p-3">
+                        <p className="text-sm font-bold text-red-700">⚠️ OUT OF STOCK</p>
+                        <p className="text-sm font-semibold text-slate-800 truncate">{medicine.name}</p>
+                        <p className="text-xs text-slate-500">{medicine.manufacturer || 'N/A'}</p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-red-700">Stock: 0</span>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectSection('inventory')}
+                            className="text-xs text-red-600 hover:text-red-800 font-semibold underline"
+                          >
+                            Reorder
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {inventoryItems.filter((item) => {
+                      const stock = Number(item.stock || 0);
+                      return stock > 0 && stock < 5;
+                    }).slice(0, 6).map((medicine) => (
+                      <div key={medicine._id} className="rounded-lg border-2 border-yellow-400 bg-white p-3">
+                        <p className="text-sm font-bold text-yellow-700">⚠️ LOW STOCK</p>
+                        <p className="text-sm font-semibold text-slate-800 truncate">{medicine.name}</p>
+                        <p className="text-xs text-slate-500">{medicine.manufacturer || 'N/A'}</p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-yellow-700">Stock: {medicine.stock}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectSection('inventory')}
+                            className="text-xs text-yellow-600 hover:text-yellow-800 font-semibold underline"
+                          >
+                            Reorder
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {inventoryItems.filter((item) => Number(item.stock || 0) === 0).length === 0 && inventoryItems.filter((item) => {
+                      const stock = Number(item.stock || 0);
+                      return stock > 0 && stock < 5;
+                    }).length === 0 && (
+                      <div className="col-span-full rounded-lg bg-emerald-50 p-4 text-center">
+                        <p className="text-sm font-semibold text-emerald-700">✓ All medicines are well stocked</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Daily Sales Overview Widget */}
+                <div className="grid gap-6 lg:grid-cols-4">
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-blue-600 uppercase">Today Orders</p>
+                        <p className="mt-2 text-2xl font-bold text-blue-900">{todayOrderCount}</p>
+                      </div>
+                      <ShoppingBag className="text-blue-400" size={32} />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-emerald-600 uppercase">Today Revenue</p>
+                        <p className="mt-2 text-2xl font-bold text-emerald-900">₹{todayRevenue.toFixed(2)}</p>
+                      </div>
+                      <TrendingUp className="text-emerald-400" size={32} />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-amber-600 uppercase">Pending Prescriptions</p>
+                        <p className="mt-2 text-2xl font-bold text-amber-900">{pendingPrescriptionCount}</p>
+                        <p className="text-[11px] font-medium text-amber-700">Over 24h: {pendingOver24hCount}</p>
+                      </div>
+                      <Clock className="text-amber-400" size={32} />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-purple-600 uppercase">Approved Today</p>
+                        <p className="mt-2 text-2xl font-bold text-purple-900">
+                          {approvedTodayCount}
+                        </p>
+                        <p className="text-[11px] font-medium text-purple-700">Rejected Today: {rejectedTodayCount}</p>
+                        <p className="text-[11px] font-medium text-purple-700">Approval Rate: {approvalRate}%</p>
+                      </div>
+                      <Eye className="text-purple-400" size={32} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Prescription Approval Quick Stats */}
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-6">
+                    <ClipboardList className="text-indigo-600" size={24} />
+                    <h2 className="text-xl font-bold text-slate-900">Prescription Processing Overview</h2>
+                  </div>
+                  <div className="grid gap-6 md:grid-cols-2">
+                    {/* Processing Stats */}
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-sm font-semibold text-slate-600 mb-3">Status Breakdown</p>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-700">Pending Review</span>
+                            <span className="inline-flex items-center gap-2">
+                              <span className="text-lg font-bold text-amber-600">{pendingPrescriptionCount}</span>
+                              <span className="text-xs text-slate-500">prescriptions</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-700">Approved</span>
+                            <span className="inline-flex items-center gap-2">
+                              <span className="text-lg font-bold text-emerald-600">{approvedPrescriptionCount}</span>
+                              <span className="text-xs text-slate-500">prescriptions</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-700">Rejected</span>
+                            <span className="inline-flex items-center gap-2">
+                              <span className="text-lg font-bold text-rose-600">{rejectedPrescriptionCount}</span>
+                              <span className="text-xs text-slate-500">prescriptions</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-4">
+                        <p className="text-sm font-semibold text-slate-600 mb-2">Workflow Health</p>
+                        <p className="text-xs text-slate-500">Average review time</p>
+                        <p className="text-xl font-bold text-slate-900">{avgReviewHours.toFixed(1)} hrs</p>
+                        <p className="mt-2 text-xs text-slate-500">Pending over 24 hours: <span className="font-semibold text-amber-700">{pendingOver24hCount}</span></p>
+                      </div>
+                    </div>
+
+                    {/* Quick Actions */}
+                    <div className="space-y-4">
+                      <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                        <p className="text-sm font-semibold text-indigo-600 mb-3">Quick Actions</p>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectSection('prescription')}
+                          className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+                        >
+                          <ClipboardList size={16} />
+                          Review Pending Prescriptions
+                        </button>
+                        <p className="mt-3 text-xs text-indigo-600 font-semibold">
+                          {pendingPrescriptionCount} awaiting your approval
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {selectedSection === 'myProfile' && (
               <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -2336,26 +2722,7 @@ const StoreDashboard = () => {
                   </div>
                 </div>
 
-                {!isStaffSelfProfile && (
-                  <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-2xl bg-violet-50 p-4">
-                      <p className="text-xs text-violet-700">Logged-in Name</p>
-                      <p className="text-sm font-semibold text-violet-900">{loggedInAccount.name || 'N/A'}</p>
-                    </div>
-                    <div className="rounded-2xl bg-blue-50 p-4">
-                      <p className="text-xs text-blue-600">Logged-in Email</p>
-                      <p className="text-sm font-semibold text-blue-900 break-all">{loggedInAccount.email || 'N/A'}</p>
-                    </div>
-                    <div className="rounded-2xl bg-amber-50 p-4">
-                      <p className="text-xs text-amber-700">Logged-in Contact</p>
-                      <p className="text-sm font-semibold text-amber-900">{loggedInAccount.contact || 'N/A'}</p>
-                    </div>
-                    <div className="rounded-2xl bg-emerald-50 p-4">
-                      <p className="text-xs text-emerald-700">Logged-in Status</p>
-                      <p className="text-sm font-semibold text-emerald-900">{loggedInAccount.role || dashboardAccessRole} • {loggedInAccount.status || 'N/A'}</p>
-                    </div>
-                  </div>
-                )}
+
 
                 {isStaffSelfProfile ? (
                   !isEditingStaffProfile ? (
@@ -4511,6 +4878,12 @@ const StoreDashboard = () => {
                               {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
                             </span>
                           </div>
+                          <div className="mt-2 space-y-1 text-xs text-slate-500">
+                            <p>Uploaded: {prescription.createdAt ? new Date(prescription.createdAt).toLocaleString() : 'N/A'}</p>
+                            {(normalizedStatus === 'approved' || normalizedStatus === 'rejected') && (
+                              <p>{normalizedStatus === 'approved' ? 'Approved' : 'Rejected'}: {prescription.reviewedAt ? new Date(prescription.reviewedAt).toLocaleString() : 'N/A'}</p>
+                            )}
+                          </div>
                           {(normalizedStatus === 'approved' || normalizedStatus === 'rejected') && (
                             <p className="mt-2 text-xs text-slate-500">By {prescription.reviewedByName || 'Store Admin'}</p>
                           )}
@@ -4537,6 +4910,26 @@ const StoreDashboard = () => {
                             {selectedPendingPrescription.status?.charAt(0).toUpperCase() + selectedPendingPrescription.status?.slice(1)}
                           </span>
                         </div>
+                        <div className="mb-4 grid gap-3 md:grid-cols-2">
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                            <p className="text-xs font-semibold text-blue-600 uppercase">Uploaded Date</p>
+                            <p className="text-sm font-semibold text-blue-900">
+                              {selectedPendingPrescription.createdAt ? new Date(selectedPendingPrescription.createdAt).toLocaleString() : 'N/A'}
+                            </p>
+                          </div>
+                          {(String(selectedPendingPrescription.status || '').toLowerCase() === 'approved' || String(selectedPendingPrescription.status || '').toLowerCase() === 'rejected') && (
+                            <div className={`rounded-lg border p-3 ${String(selectedPendingPrescription.status || '').toLowerCase() === 'approved' ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}>
+                              <p className={`text-xs font-semibold uppercase ${String(selectedPendingPrescription.status || '').toLowerCase() === 'approved' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                {String(selectedPendingPrescription.status || '').toLowerCase() === 'approved' ? 'Approved Date' : 'Rejected Date'}
+                              </p>
+                              <p className={`text-sm font-semibold ${String(selectedPendingPrescription.status || '').toLowerCase() === 'approved' ? 'text-emerald-900' : 'text-red-900'}`}>
+                                {selectedPendingPrescription.reviewedAt ? new Date(selectedPendingPrescription.reviewedAt).toLocaleString() : 'N/A'}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-600">Reviewed by: {selectedPendingPrescription.reviewedByName || 'Store Admin'}</p>
+                            </div>
+                          )}
+                        </div>
+
                         {selectedPrescriptionFileUrl && String(selectedPendingPrescription.status || '').toLowerCase() === 'pending' && (
                           <div className="rounded-3xl border border-slate-200 bg-white p-5">
                             <div className="flex items-center justify-between gap-3">
@@ -4574,25 +4967,78 @@ const StoreDashboard = () => {
                           <div className="mt-6 space-y-4 rounded-3xl border border-slate-200 bg-white p-5">
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-sm font-semibold text-slate-900">Decision Workspace: Pending Prescription</p>
-                              <button
-                                type="button"
-                                onClick={handleAddApprovalItem}
-                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
-                              >
-                                <Plus size={14} /> Add Medicine
-                              </button>
+                              {!showApprovalItemsSection ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowApprovalItemsSection(true);
+                                    setApprovalItems([createEmptyApprovalItem()]);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+                                >
+                                  <Plus size={14} /> Add Medicine
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setApprovalItems((prev) => [
+                                      ...prev,
+                                      createEmptyApprovalItem()
+                                    ])
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+                                >
+                                  <Plus size={14} /> Add Another Medicine
+                                </button>
+                              )}
                             </div>
 
+                            {showApprovalItemsSection && (
+                            <>
                             <div className="space-y-3">
-                              {approvalItems.map((item, index) => (
+                              {approvalItems.map((item, index) => {
+                                const medicineNameQuery = String(item.name || '').trim();
+                                const canSearchMedicines = medicineNameQuery.length >= PRESCRIPTION_MED_SEARCH_MIN_CHARS;
+                                const medicineSuggestions = getPrescriptionMedicineSuggestions(medicineNameQuery);
+
+                                return (
                                 <div key={`approval-item-${index}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                                   <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
-                                    <input
-                                      value={item.name}
-                                      onChange={(event) => handleApprovalItemChange(index, 'name', event.target.value)}
-                                      placeholder="Medicine name"
-                                      className={`rounded-lg border px-3 py-2 text-sm ${approvalItemErrors[index]?.name ? 'border-rose-400 bg-rose-50' : 'border-slate-300'}`}
-                                    />
+                                    <div className="relative">
+                                      <input
+                                        value={item.name}
+                                        onChange={(event) => handleApprovalMedicineNameInputChange(index, event.target.value)}
+                                        placeholder="Medicine name"
+                                        className={`w-full rounded-lg border px-3 py-2 text-sm ${approvalItemErrors[index]?.name ? 'border-rose-400 bg-rose-50' : 'border-slate-300'}`}
+                                      />
+                                      {medicineNameQuery.length > 0 && !canSearchMedicines && (
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                          Type at least {PRESCRIPTION_MED_SEARCH_MIN_CHARS} characters to search medicines.
+                                        </p>
+                                      )}
+                                      {canSearchMedicines && !item.medicineId && medicineSuggestions.length > 0 && (
+                                        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                                          {medicineSuggestions.map((medicine) => (
+                                            <button
+                                              key={medicine.id}
+                                              type="button"
+                                              onClick={() => applySuggestedMedicineToApprovalItem(index, medicine)}
+                                              className="block w-full border-b border-slate-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-slate-50"
+                                            >
+                                              <p className="font-semibold text-slate-800">{medicine.name}</p>
+                                              <p className="text-slate-500">
+                                                {[medicine.manufacturer, medicine.dosage, medicine.type].filter(Boolean).join(' • ') || 'General'}
+                                              </p>
+                                              <p className="text-slate-600">Price: {medicine.price}</p>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {canSearchMedicines && !item.medicineId && medicineSuggestions.length === 0 && (
+                                        <p className="mt-1 text-[11px] text-slate-500">No medicines found in inventory.</p>
+                                      )}
+                                    </div>
                                     <input
                                       value={item.quantity}
                                       onChange={(event) => handleApprovalItemChange(index, 'quantity', event.target.value)}
@@ -4648,22 +5094,11 @@ const StoreDashboard = () => {
                                     </div>
                                   </div>
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
 
-                            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                              <div>
-                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Subtotal</label>
-                                <input
-                                  value={approvalTotalsDraft.subtotal}
-                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, subtotal: event.target.value }))}
-                                  placeholder="Subtotal"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                />
-                              </div>
+                                <div className="grid gap-3 md:grid-cols-2">
                               <div>
                                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Discount</label>
                                 <input
@@ -4677,35 +5112,11 @@ const StoreDashboard = () => {
                                 />
                               </div>
                               <div>
-                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Tax</label>
-                                <input
-                                  value={approvalTotalsDraft.tax}
-                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, tax: event.target.value }))}
-                                  placeholder="Tax"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                />
-                              </div>
-                              <div>
                                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Delivery Charge</label>
                                 <input
                                   value={approvalTotalsDraft.deliveryCharge}
                                   onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, deliveryCharge: event.target.value }))}
                                   placeholder="Delivery charge"
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Total</label>
-                                <input
-                                  value={approvalTotalsDraft.grandTotal}
-                                  onChange={(event) => setApprovalTotalsDraft((prev) => ({ ...prev, grandTotal: event.target.value }))}
-                                  placeholder="Total"
                                   type="number"
                                   min="0"
                                   step="0.01"
@@ -4775,6 +5186,8 @@ const StoreDashboard = () => {
                                 <XCircle size={18} /> Reject
                               </button>
                             </div>
+                              </>
+                            )}
                           </div>
                       </>
                   </div>

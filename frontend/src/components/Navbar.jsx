@@ -18,6 +18,7 @@ const Navbar = () => {
 
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [adminData, setAdminData] = useState(null);
+    const [storeHeaderName, setStoreHeaderName] = useState('');
     const [currentTime, setCurrentTime] = useState(new Date());
     const [menuOpen, setMenuOpen] = useState(false);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -71,6 +72,10 @@ const Navbar = () => {
             });
 
             localStorage.setItem('userData', JSON.stringify(response.data.userData));
+            const fetchedStoreName = String(response.data?.userData?.storeName || '').trim();
+            if (fetchedStoreName) {
+                setStoreHeaderName(fetchedStoreName);
+            }
         } catch (error) {
             console.error("Error fetching data:", error.message);
         }
@@ -132,6 +137,11 @@ const Navbar = () => {
 
     useEffect(() => {
     const token = localStorage.getItem('medVisionToken');
+    const cachedUser = JSON.parse(localStorage.getItem('userData') || '{}');
+    const cachedStoreName = String(cachedUser?.storeName || '').trim();
+    if (cachedStoreName) {
+        setStoreHeaderName(cachedStoreName);
+    }
 
     if (token) {
         setIsLoggedIn(true);
@@ -187,7 +197,9 @@ const Navbar = () => {
                                 </div>
                                 <div>
                                     <p className="text-lg sm:text-xl font-bold text-white leading-none">Store Dashboard</p>
-                                    <p className="hidden sm:block text-[11px] uppercase tracking-[0.2em] text-teal-200 font-semibold mt-1">MedVision Pharmacy</p>
+                                    <p className="hidden sm:block text-[11px] uppercase tracking-[0.2em] text-teal-200 font-semibold mt-1">
+                                        {storeHeaderName || 'Pharmacy Store'}
+                                    </p>
                                 </div>
                             </div>
 
