@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, Phone, User, Mail, ShoppingCart, ChevronLeft, Truck, Package, ShieldCheck } from 'lucide-react';
+import { MapPin, Phone, User, Mail, ShoppingCart, ChevronLeft, Truck, Package, ShieldCheck, Clock, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { baseURL } from '../main';
 import axios from 'axios';
@@ -15,6 +15,7 @@ export function AddressPage() {
   const [userdata, setUserData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [deliveryType, setDeliveryType] = useState('delivery');
+  const [sameDayDelivery, setSameDayDelivery] = useState(null); // null = not selected, true = selected
   const [formData, setFormData] = useState({
     fullName: userdata?.name || '',
     email: userdata?.email || '',
@@ -95,7 +96,8 @@ export function AddressPage() {
         id: userdata?._id,
         orderid: currentOrderId,
         address: formData.address,
-        deliveryType: deliveryType
+        deliveryType: deliveryType,
+        sameDayDelivery: deliveryType === 'delivery' ? sameDayDelivery : null,
       });
 
       if (response.status === 200) {
@@ -108,6 +110,7 @@ export function AddressPage() {
               cartItems: cartItems,
               orderId: currentOrderId,
               deliveryType: deliveryType,
+              sameDayDelivery: deliveryType === 'delivery' ? sameDayDelivery : null,
               checkoutSummary: {
                 ...(checkoutSummary || {}),
                 subtotalAmount: computedSubtotal,
@@ -232,7 +235,10 @@ export function AddressPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
-                      onClick={() => setDeliveryType('pickup')}
+                      onClick={() => {
+                        setDeliveryType('pickup');
+                        setSameDayDelivery(null);
+                      }}
                       className={`p-4 rounded-xl border-2 transition-all text-left ${
                         deliveryType === 'pickup'
                           ? 'border-blue-600 bg-blue-50'
@@ -256,6 +262,82 @@ export function AddressPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Same Day Delivery Options - Only show when Home Delivery is selected */}
+                {deliveryType === 'delivery' && (
+                  <div className="space-y-3 pt-4 border-t border-gray-200 animate-fade-in">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-emerald-600" />
+                      <label className="text-sm font-semibold text-gray-700">Delivery Speed (Optional)</label>
+                    </div>
+                    <p className="text-xs text-gray-500">Choose express delivery or standard delivery</p>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Standard Delivery Option */}
+                      <button
+                        type="button"
+                        onClick={() => setSameDayDelivery(false)}
+                        className={`p-4 rounded-xl border-2 transition-all text-left ${
+                          sameDayDelivery === false
+                            ? 'border-cyan-600 bg-cyan-50'
+                            : sameDayDelivery === null
+                            ? 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                            : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-semibold text-gray-900">Standard Delivery</div>
+                            <div className="text-sm text-gray-600">3-5 business days</div>
+                          </div>
+                          <Clock className="w-5 h-5 text-cyan-600" />
+                        </div>
+                      </button>
+
+                      {/* Same Day Delivery Option */}
+                      <button
+                        type="button"
+                        onClick={() => setSameDayDelivery(true)}
+                        className={`p-4 rounded-xl border-2 transition-all text-left relative overflow-hidden ${
+                          sameDayDelivery === true
+                            ? 'border-emerald-600 bg-emerald-50'
+                            : sameDayDelivery === null
+                            ? 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                            : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="absolute top-0 right-0 bg-emerald-600 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">
+                          EXPRESS
+                        </div>
+                        <div className="flex items-center justify-between pt-2">
+                          <div>
+                            <div className="font-semibold text-gray-900">Same Day Delivery</div>
+                            <div className="text-sm text-gray-600">Before 9 PM today</div>
+                            <div className="text-xs font-semibold text-emerald-700 mt-1">Order before 2 PM</div>
+                          </div>
+                          <Zap className="w-5 h-5 text-emerald-600" />
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Info Box */}
+                    {sameDayDelivery === true && (
+                      <div className="mt-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200 animate-fade-in">
+                        <p className="text-xs text-emerald-800">
+                          <span className="font-semibold">✓ Same day available:</span> Order before 2 PM to get delivery by 9 PM today
+                        </p>
+                      </div>
+                    )}
+
+                    {sameDayDelivery === false && (
+                      <div className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200 animate-fade-in">
+                        <p className="text-xs text-blue-800">
+                          <span className="font-semibold">ℹ Standard delivery:</span> Your order will be delivered within 3-5 business days
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-3">
@@ -288,6 +370,16 @@ export function AddressPage() {
         )}
       </div>
       <CheckoutFooter />
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fadeIn 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
