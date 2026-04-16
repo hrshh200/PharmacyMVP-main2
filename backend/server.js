@@ -5,6 +5,8 @@ const connectDB = require("./config/config"); //connecting to the database
 const authRouter = require("./routes/auth");
 const path = require("path");
 const os = require("os");
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./swagger");
 
 const cors = require("cors");
 const multer = require("multer");
@@ -56,6 +58,7 @@ const uploadsDir = process.env.UPLOADS_DIR || path.join(os.tmpdir(), 'medvision-
 app.use('/uploads', express.static(uploadsDir));
 
 // app.use(cors(corsOptions));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api", authRouter);
 
 

@@ -1,0 +1,1446 @@
+{
+  "info": {
+    "name": "PharmacyMVP API",
+    "description": "Complete Postman collection for PharmacyMVP backend APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000", "type": "string" },
+    { "key": "userToken", "value": "", "type": "string" },
+    { "key": "storeToken", "value": "", "type": "string" },
+    { "key": "adminToken", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Sign Up",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/signup", "host": ["{{baseUrl}}"], "path": ["api", "signup"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"Secret@123\",\n  \"role\": \"User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.token) { pm.collectionVariables.set('userToken', json.token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/login", "host": ["{{baseUrl}}"], "path": ["api", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"Secret@123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/forgot-password", "host": ["{{baseUrl}}"], "path": ["api", "forgot-password"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Fetch Data",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/fetchdata", "host": ["{{baseUrl}}"], "path": ["api", "fetchdata"] }
+          }
+        },
+        {
+          "name": "Update Patient Profile",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/patientprofile", "host": ["{{baseUrl}}"], "path": ["api", "patientprofile"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "name", "value": "John Doe", "type": "text" },
+                { "key": "phone", "value": "9876543210", "type": "text" },
+                { "key": "address", "value": "123 Main St, Mumbai", "type": "text" },
+                { "key": "dateOfBirth", "value": "1995-06-15", "type": "text" },
+                { "key": "gender", "value": "Male", "type": "text" },
+                { "key": "profileImage", "type": "file", "src": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Notification Preferences",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/user-notifications", "host": ["{{baseUrl}}"], "path": ["api", "user-notifications"] }
+          }
+        },
+        {
+          "name": "Update Notification Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/user-notifications", "host": ["{{baseUrl}}"], "path": ["api", "user-notifications"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"emailNotifications\": true,\n  \"smsNotifications\": false,\n  \"orderUpdates\": true,\n  \"promotions\": false\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Store",
+      "item": [
+        {
+          "name": "Update Store Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-profile", "host": ["{{baseUrl}}"], "path": ["api", "store-profile"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeName\": \"MedVision Pharmacy\",\n  \"address\": \"456 Health Ave, Delhi\",\n  \"phone\": \"9123456789\",\n  \"openingHours\": \"9AM - 9PM\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Fetch Admin Data",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/adminfetchdata", "host": ["{{baseUrl}}"], "path": ["api", "adminfetchdata"] }
+          }
+        },
+        {
+          "name": "Get All Stores",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/allstores", "host": ["{{baseUrl}}"], "path": ["api", "allstores"] }
+          }
+        },
+        {
+          "name": "Add Store",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/stores", "host": ["{{baseUrl}}"], "path": ["api", "stores"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeName\": \"New Pharmacy\",\n  \"email\": \"store@example.com\",\n  \"password\": \"Store@123\",\n  \"address\": \"789 Med Road\",\n  \"phone\": \"9000000001\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Store Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/stores/:id/status", "host": ["{{baseUrl}}"], "path": ["api", "stores", ":id", "status"], "variable": [{ "key": "id", "value": "STORE_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Store Approval Requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-requests", "host": ["{{baseUrl}}"], "path": ["api", "store-requests"] }
+          }
+        },
+        {
+          "name": "Submit Store Approval Request",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/store-requests", "host": ["{{baseUrl}}"], "path": ["api", "store-requests"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "storeName", "value": "My Pharmacy", "type": "text" },
+                { "key": "ownerName", "value": "Jane Smith", "type": "text" },
+                { "key": "email", "value": "jane@pharmacy.com", "type": "text" },
+                { "key": "phone", "value": "9876500000", "type": "text" },
+                { "key": "address", "value": "100 Pharma Street", "type": "text" },
+                { "key": "storeLicenceFile", "type": "file", "src": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Review Store Approval Request",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-requests/:id/review", "host": ["{{baseUrl}}"], "path": ["api", "store-requests", ":id", "review"], "variable": [{ "key": "id", "value": "REQUEST_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"remarks\": \"All documents verified\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Medicines",
+      "item": [
+        {
+          "name": "Get All Medicines",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/allmedicines", "host": ["{{baseUrl}}"], "path": ["api", "allmedicines"] }
+          }
+        },
+        {
+          "name": "Add Medicine",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/addmedicine", "host": ["{{baseUrl}}"], "path": ["api", "addmedicine"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Paracetamol 500mg\",\n  \"price\": 10.5,\n  \"quantity\": 100,\n  \"category\": \"Analgesic\",\n  \"manufacturer\": \"Sun Pharma\",\n  \"expiryDate\": \"2027-12-31\",\n  \"description\": \"Pain relief tablet\",\n  \"requiresPrescription\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Medicine",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/deletemedicine", "host": ["{{baseUrl}}"], "path": ["api", "deletemedicine"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicineId\": \"MEDICINE_ID\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Medicines By Store",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/medicines-by-store/:storeId", "host": ["{{baseUrl}}"], "path": ["api", "medicines-by-store", ":storeId"], "variable": [{ "key": "storeId", "value": "STORE_ID" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cart",
+      "item": [
+        {
+          "name": "Get Cart",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/cart", "host": ["{{baseUrl}}"], "path": ["api", "cart"] }
+          }
+        },
+        {
+          "name": "Add Items To Cart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/additemstocart", "host": ["{{baseUrl}}"], "path": ["api", "additemstocart"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\",\n  \"items\": [\n    { \"medicineId\": \"MEDICINE_ID\", \"quantity\": 2 }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Increase Cart Quantity",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/updatecartquantity", "host": ["{{baseUrl}}"], "path": ["api", "updatecartquantity"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\",\n  \"medicineId\": \"MEDICINE_ID\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Decrease Cart Quantity",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/decreaseupdatecartquantity", "host": ["{{baseUrl}}"], "path": ["api", "decreaseupdatecartquantity"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\",\n  \"medicineId\": \"MEDICINE_ID\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Clear Full Cart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/deletefullcart", "host": ["{{baseUrl}}"], "path": ["api", "deletefullcart"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Confirm Ordered Medicines",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/updateorderedmedicines", "host": ["{{baseUrl}}"], "path": ["api", "updateorderedmedicines"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\",\n  \"medicines\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "Save Delivery Address",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/addaddress", "host": ["{{baseUrl}}"], "path": ["api", "addaddress"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\",\n  \"address\": {\n    \"line1\": \"123 Main Street\",\n    \"city\": \"Mumbai\",\n    \"state\": \"Maharashtra\",\n    \"pincode\": \"400001\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Process Payment & Place Order",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/addpayment", "host": ["{{baseUrl}}"], "path": ["api", "addpayment"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"USER_ID\",\n  \"paymentMethod\": \"COD\",\n  \"transactionId\": \"\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get My Orders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/orders/me", "host": ["{{baseUrl}}"], "path": ["api", "orders", "me"] }
+          }
+        },
+        {
+          "name": "Get Order By ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/orders/:orderId", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":orderId"], "variable": [{ "key": "orderId", "value": "ORDER_ID" }] }
+          }
+        },
+        {
+          "name": "Get Store Orders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-orders", "host": ["{{baseUrl}}"], "path": ["api", "store-orders"] }
+          }
+        },
+        {
+          "name": "Update Order Tracking Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/orders/:orderId/tracking", "host": ["{{baseUrl}}"], "path": ["api", "orders", ":orderId", "tracking"], "variable": [{ "key": "orderId", "value": "ORDER_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"shipped\",\n  \"note\": \"Dispatched via courier\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prescriptions",
+      "item": [
+        {
+          "name": "Upload Prescription (No Auth)",
+          "request": {
+            "method": "POST",
+            "url": { "raw": "{{baseUrl}}/api/uploadpres", "host": ["{{baseUrl}}"], "path": ["api", "uploadpres"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "prescription", "type": "file", "src": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload Prescription Request (User)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/upload", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "upload"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "prescription", "type": "file", "src": "" },
+                { "key": "notes", "value": "Please check for generic alternatives", "type": "text" },
+                { "key": "storeId", "value": "STORE_ID", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get My Prescription Requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/me", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "me"] }
+          }
+        },
+        {
+          "name": "Get Store Prescription Requests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/store", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "store"] }
+          }
+        },
+        {
+          "name": "Re-upload Prescription",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/:id/reupload", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", ":id", "reupload"], "variable": [{ "key": "id", "value": "PRESCRIPTION_ID" }] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "prescription", "type": "file", "src": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Review Prescription Request (Store)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/:id/review", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", ":id", "review"], "variable": [{ "key": "id", "value": "PRESCRIPTION_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"items\": [],\n  \"totalAmount\": 250,\n  \"notes\": \"Ready for checkout\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Prescription Checkout",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/:id/checkout", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", ":id", "checkout"], "variable": [{ "key": "id", "value": "PRESCRIPTION_ID" }] }
+          }
+        },
+        {
+          "name": "Place Prescription Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/:id/place-order", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", ":id", "place-order"], "variable": [{ "key": "id", "value": "PRESCRIPTION_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethod\": \"COD\",\n  \"address\": {\n    \"line1\": \"123 Main St\",\n    \"city\": \"Mumbai\",\n    \"state\": \"Maharashtra\",\n    \"pincode\": \"400001\"\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Prescriptions Auto-Fill",
+      "item": [
+        {
+          "name": "Upload Prescription for AI Auto-Fill",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/auto-fill/upload", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "auto-fill", "upload"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "prescription", "type": "file", "src": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Extract Medicines from Prescription",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/auto-fill/:prescriptionId/extract", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "auto-fill", ":prescriptionId", "extract"], "variable": [{ "key": "prescriptionId", "value": "PRESCRIPTION_ID" }] }
+          }
+        },
+        {
+          "name": "Get User Prescription Uploads",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/auto-fill", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "auto-fill"] }
+          }
+        },
+        {
+          "name": "Add Extracted Medicines to Cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/prescriptions/auto-fill/:prescriptionId/add-to-cart", "host": ["{{baseUrl}}"], "path": ["api", "prescriptions", "auto-fill", ":prescriptionId", "add-to-cart"], "variable": [{ "key": "prescriptionId", "value": "PRESCRIPTION_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicines\": [\n    { \"medicineId\": \"MEDICINE_ID\", \"quantity\": 1 }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Queries",
+      "item": [
+        {
+          "name": "Create Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/queries", "host": ["{{baseUrl}}"], "path": ["api", "queries"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Medicine availability\",\n  \"message\": \"Is Paracetamol available in stock?\",\n  \"storeId\": \"STORE_ID\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get My Queries",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/queries", "host": ["{{baseUrl}}"], "path": ["api", "queries"] }
+          }
+        },
+        {
+          "name": "Get Store Queries",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/queries/store", "host": ["{{baseUrl}}"], "path": ["api", "queries", "store"] }
+          }
+        },
+        {
+          "name": "Answer Query",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/queries/:id/answer", "host": ["{{baseUrl}}"], "path": ["api", "queries", ":id", "answer"], "variable": [{ "key": "id", "value": "QUERY_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": \"Yes, Paracetamol is in stock. Please place your order.\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Store Staff",
+      "item": [
+        {
+          "name": "Get Staff Members",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-staff", "host": ["{{baseUrl}}"], "path": ["api", "store-staff"] }
+          }
+        },
+        {
+          "name": "Create Staff Member",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-staff", "host": ["{{baseUrl}}"], "path": ["api", "store-staff"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Raj Kumar\",\n  \"email\": \"raj@pharmacy.com\",\n  \"phone\": \"9000000001\",\n  \"role\": \"pharmacist\",\n  \"salary\": 25000\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Staff Member",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-staff/:id", "host": ["{{baseUrl}}"], "path": ["api", "store-staff", ":id"], "variable": [{ "key": "id", "value": "STAFF_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Raj Kumar\",\n  \"phone\": \"9000000002\",\n  \"role\": \"manager\",\n  \"salary\": 30000\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Staff Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-staff/:id/status", "host": ["{{baseUrl}}"], "path": ["api", "store-staff", ":id", "status"], "variable": [{ "key": "id", "value": "STAFF_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"inactive\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Staff Member",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-staff/:id", "host": ["{{baseUrl}}"], "path": ["api", "store-staff", ":id"], "variable": [{ "key": "id", "value": "STAFF_ID" }] }
+          }
+        },
+        {
+          "name": "Get Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-staff/permissions", "host": ["{{baseUrl}}"], "path": ["api", "store-staff", "permissions"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Staff Performance",
+      "item": [
+        {
+          "name": "Create Performance Record",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/staff/performance", "host": ["{{baseUrl}}"], "path": ["api", "staff", "performance"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"staffId\": \"STAFF_ID\",\n  \"rating\": 4,\n  \"notes\": \"Excellent customer service\",\n  \"month\": \"March 2026\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Performance Records",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/staff/performance", "host": ["{{baseUrl}}"], "path": ["api", "staff", "performance"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Staff Attendance",
+      "item": [
+        {
+          "name": "Create Attendance Record",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/staff/attendance", "host": ["{{baseUrl}}"], "path": ["api", "staff", "attendance"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"staffId\": \"STAFF_ID\",\n  \"date\": \"2026-04-16\",\n  \"shift\": \"morning\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Attendance Records",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/staff/attendance", "host": ["{{baseUrl}}"], "path": ["api", "staff", "attendance"] }
+          }
+        },
+        {
+          "name": "Check In Staff",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/staff/attendance/:id/check-in", "host": ["{{baseUrl}}"], "path": ["api", "staff", "attendance", ":id", "check-in"], "variable": [{ "key": "id", "value": "ATTENDANCE_ID" }] }
+          }
+        },
+        {
+          "name": "Check Out Staff",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/staff/attendance/:id/check-out", "host": ["{{baseUrl}}"], "path": ["api", "staff", "attendance", ":id", "check-out"], "variable": [{ "key": "id", "value": "ATTENDANCE_ID" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Staff Training",
+      "item": [
+        {
+          "name": "Create Training Record",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/staff/training", "host": ["{{baseUrl}}"], "path": ["api", "staff", "training"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"staffId\": \"STAFF_ID\",\n  \"trainingName\": \"Drug Interaction Awareness\",\n  \"completedDate\": \"2026-04-01\",\n  \"certificateUrl\": \"\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Training Records",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/staff/training", "host": ["{{baseUrl}}"], "path": ["api", "staff", "training"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Compliance",
+      "item": [
+        {
+          "name": "Create Checklist Item",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/compliance/checklist", "host": ["{{baseUrl}}"], "path": ["api", "compliance", "checklist"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Renew store licence\",\n  \"description\": \"Submit documents to health authority\",\n  \"dueDate\": \"2026-06-30\",\n  \"category\": \"Licensing\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Checklist Items",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/compliance/checklist", "host": ["{{baseUrl}}"], "path": ["api", "compliance", "checklist"] }
+          }
+        },
+        {
+          "name": "Update Checklist Item",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/compliance/checklist/:id", "host": ["{{baseUrl}}"], "path": ["api", "compliance", "checklist", ":id"], "variable": [{ "key": "id", "value": "CHECKLIST_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Renew store licence\",\n  \"completed\": true,\n  \"dueDate\": \"2026-06-30\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Compliance Reminders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/compliance/reminders", "host": ["{{baseUrl}}"], "path": ["api", "compliance", "reminders"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Finance",
+      "item": [
+        {
+          "name": "Create Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/finance/invoices", "host": ["{{baseUrl}}"], "path": ["api", "finance", "invoices"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supplierId\": \"SUPPLIER_ID\",\n  \"items\": [\n    { \"name\": \"Paracetamol 500mg\", \"quantity\": 200, \"unitPrice\": 5 }\n  ],\n  \"totalAmount\": 1000,\n  \"dueDate\": \"2026-05-31\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Invoices",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/finance/invoices", "host": ["{{baseUrl}}"], "path": ["api", "finance", "invoices"] }
+          }
+        },
+        {
+          "name": "Reconcile Invoice Payment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/finance/invoices/:invoiceId/payments", "host": ["{{baseUrl}}"], "path": ["api", "finance", "invoices", ":invoiceId", "payments"], "variable": [{ "key": "invoiceId", "value": "INVOICE_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1000,\n  \"paymentDate\": \"2026-04-16\",\n  \"method\": \"bank transfer\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Reconciliation Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/finance/reconciliation", "host": ["{{baseUrl}}"], "path": ["api", "finance", "reconciliation"] }
+          }
+        },
+        {
+          "name": "Get Profit Margin Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/finance/profit-margin", "host": ["{{baseUrl}}"], "path": ["api", "finance", "profit-margin"] }
+          }
+        },
+        {
+          "name": "Get Tax Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/finance/tax-report", "host": ["{{baseUrl}}"], "path": ["api", "finance", "tax-report"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Suppliers",
+      "item": [
+        {
+          "name": "Create Supplier",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/suppliers", "host": ["{{baseUrl}}"], "path": ["api", "suppliers"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sun Pharma Distributors\",\n  \"contactEmail\": \"supply@sunpharma.com\",\n  \"phone\": \"9123401234\",\n  \"address\": \"Industrial Area, Pune\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Suppliers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/suppliers", "host": ["{{baseUrl}}"], "path": ["api", "suppliers"] }
+          }
+        },
+        {
+          "name": "Update Supplier",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/suppliers/:supplierId", "host": ["{{baseUrl}}"], "path": ["api", "suppliers", ":supplierId"], "variable": [{ "key": "supplierId", "value": "SUPPLIER_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Sun Pharma Updated\",\n  \"contactEmail\": \"new@sunpharma.com\",\n  \"phone\": \"9000000099\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Supplier",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/suppliers/:supplierId", "host": ["{{baseUrl}}"], "path": ["api", "suppliers", ":supplierId"], "variable": [{ "key": "supplierId", "value": "SUPPLIER_ID" }] }
+          }
+        },
+        {
+          "name": "Add Supplier Payment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/suppliers/:supplierId/payments", "host": ["{{baseUrl}}"], "path": ["api", "suppliers", ":supplierId", "payments"], "variable": [{ "key": "supplierId", "value": "SUPPLIER_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000,\n  \"paymentDate\": \"2026-04-16\",\n  \"method\": \"NEFT\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Marketing",
+      "item": [
+        {
+          "name": "Create Campaign",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/marketing/campaigns", "host": ["{{baseUrl}}"], "path": ["api", "marketing", "campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Summer Health Sale\",\n  \"description\": \"Get 20% off on all vitamins\",\n  \"discount\": 20,\n  \"couponCode\": \"SUMMER20\",\n  \"startDate\": \"2026-05-01\",\n  \"endDate\": \"2026-05-31\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Store Campaigns",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/marketing/campaigns", "host": ["{{baseUrl}}"], "path": ["api", "marketing", "campaigns"] }
+          }
+        },
+        {
+          "name": "Get Public Campaigns",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/marketing/campaigns/public", "host": ["{{baseUrl}}"], "path": ["api", "marketing", "campaigns", "public"] }
+          }
+        },
+        {
+          "name": "Validate Coupon Code",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/marketing/campaigns/validate-coupon", "host": ["{{baseUrl}}"], "path": ["api", "marketing", "campaigns", "validate-coupon"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"couponCode\": \"SUMMER20\",\n  \"storeId\": \"STORE_ID\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Campaign Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/marketing/campaigns/:campaignId/status", "host": ["{{baseUrl}}"], "path": ["api", "marketing", "campaigns", ":campaignId", "status"], "variable": [{ "key": "campaignId", "value": "CAMPAIGN_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"paused\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Campaign",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/marketing/campaigns/:campaignId", "host": ["{{baseUrl}}"], "path": ["api", "marketing", "campaigns", ":campaignId"], "variable": [{ "key": "campaignId", "value": "CAMPAIGN_ID" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vaccinations",
+      "item": [
+        {
+          "name": "Upsert User Vaccination",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/vaccinations", "host": ["{{baseUrl}}"], "path": ["api", "vaccinations"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vaccinationMasterId\": \"MASTER_ID\",\n  \"dateAdministered\": \"2026-01-15\",\n  \"nextDueDate\": \"2027-01-15\",\n  \"notes\": \"No side effects\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get User Vaccinations",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/vaccinations", "host": ["{{baseUrl}}"], "path": ["api", "vaccinations"] }
+          }
+        },
+        {
+          "name": "Get Vaccination Master List",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/vaccination-master", "host": ["{{baseUrl}}"], "path": ["api", "vaccination-master"] }
+          }
+        },
+        {
+          "name": "Get User Vaccinations Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/user-vaccinations", "host": ["{{baseUrl}}"], "path": ["api", "user-vaccinations"] }
+          }
+        },
+        {
+          "name": "Update Vaccination Record",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/user-vaccinations/:vaccinationId", "host": ["{{baseUrl}}"], "path": ["api", "user-vaccinations", ":vaccinationId"], "variable": [{ "key": "vaccinationId", "value": "VACCINATION_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dateAdministered\": \"2026-01-20\",\n  \"nextDueDate\": \"2027-01-20\",\n  \"notes\": \"Updated record\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        {
+          "name": "Get Store Inventory",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-inventory", "host": ["{{baseUrl}}"], "path": ["api", "store-inventory"] }
+          }
+        },
+        {
+          "name": "Add Medicine to Inventory",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-inventory", "host": ["{{baseUrl}}"], "path": ["api", "store-inventory"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ibuprofen 400mg\",\n  \"quantity\": 150,\n  \"price\": 15,\n  \"expiryDate\": \"2027-06-30\",\n  \"batchNumber\": \"BATCH001\",\n  \"manufacturer\": \"Cipla\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Inventory Medicine",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/store-inventory/:medicineId", "host": ["{{baseUrl}}"], "path": ["api", "store-inventory", ":medicineId"], "variable": [{ "key": "medicineId", "value": "MEDICINE_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 200,\n  \"price\": 14,\n  \"expiryDate\": \"2028-01-01\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Inventory Medicine",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/store-inventory/:medicineId", "host": ["{{baseUrl}}"], "path": ["api", "store-inventory", ":medicineId"], "variable": [{ "key": "medicineId", "value": "MEDICINE_ID" }] }
+          }
+        },
+        {
+          "name": "Get Manufacturers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/manufacturers", "host": ["{{baseUrl}}"], "path": ["api", "manufacturers"] }
+          }
+        },
+        {
+          "name": "Create Manufacturer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/manufacturers", "host": ["{{baseUrl}}"], "path": ["api", "manufacturers"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Cipla Ltd\",\n  \"country\": \"India\",\n  \"contactEmail\": \"contact@cipla.com\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wishlist",
+      "item": [
+        {
+          "name": "Get Wishlist",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wishlist", "host": ["{{baseUrl}}"], "path": ["api", "wishlist"] }
+          }
+        },
+        {
+          "name": "Add to Wishlist",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/wishlist", "host": ["{{baseUrl}}"], "path": ["api", "wishlist"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicineId\": \"MEDICINE_ID\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Remove from Wishlist",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wishlist/:medicineId", "host": ["{{baseUrl}}"], "path": ["api", "wishlist", ":medicineId"], "variable": [{ "key": "medicineId", "value": "MEDICINE_ID" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Management",
+      "item": [
+        {
+          "name": "Get Medicine Trackers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/health/trackers", "host": ["{{baseUrl}}"], "path": ["api", "health", "trackers"] }
+          }
+        },
+        {
+          "name": "Create Medicine Tracker",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/health/trackers", "host": ["{{baseUrl}}"], "path": ["api", "health", "trackers"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicineName\": \"Metformin 500mg\",\n  \"frequency\": \"twice-daily\",\n  \"startDate\": \"2026-04-16\",\n  \"endDate\": \"2026-10-16\",\n  \"reminderTime\": \"08:00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Log Medicine Intake",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/health/trackers/:id/intake", "host": ["{{baseUrl}}"], "path": ["api", "health", "trackers", ":id", "intake"], "variable": [{ "key": "id", "value": "TRACKER_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"takenAt\": \"2026-04-16T08:00:00.000Z\",\n  \"skipped\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Check Drug Interactions",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/health/interactions/check", "host": ["{{baseUrl}}"], "path": ["api", "health", "interactions", "check"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicines\": [\"Aspirin\", \"Warfarin\", \"Metformin\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Medical Timeline",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/health/timeline", "host": ["{{baseUrl}}"], "path": ["api", "health", "timeline"] }
+          }
+        },
+        {
+          "name": "Export Health Records PDF",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/health/export/pdf", "host": ["{{baseUrl}}"], "path": ["api", "health", "export", "pdf"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "Get Public Reviews",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/reviews", "host": ["{{baseUrl}}"], "path": ["api", "reviews"] }
+          }
+        },
+        {
+          "name": "Create Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/reviews", "host": ["{{baseUrl}}"], "path": ["api", "reviews"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeId\": \"STORE_ID\",\n  \"rating\": 5,\n  \"comment\": \"Excellent service and fast delivery!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get My Reviews",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/reviews/me", "host": ["{{baseUrl}}"], "path": ["api", "reviews", "me"] }
+          }
+        },
+        {
+          "name": "Get Store Reviews (My Store)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/reviews/store/me", "host": ["{{baseUrl}}"], "path": ["api", "reviews", "store", "me"] }
+          }
+        },
+        {
+          "name": "Get Store Reviews by ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/reviews/store/:storeId", "host": ["{{baseUrl}}"], "path": ["api", "reviews", "store", ":storeId"], "variable": [{ "key": "storeId", "value": "STORE_ID" }] }
+          }
+        },
+        {
+          "name": "Update Review",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{userToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/reviews/:id", "host": ["{{baseUrl}}"], "path": ["api", "reviews", ":id"], "variable": [{ "key": "id", "value": "REVIEW_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 4,\n  \"comment\": \"Good service but slight delay in delivery.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Review",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/reviews/:id", "host": ["{{baseUrl}}"], "path": ["api", "reviews", ":id"], "variable": [{ "key": "id", "value": "REVIEW_ID" }] }
+          }
+        },
+        {
+          "name": "Reply to Review",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/reviews/:id/reply", "host": ["{{baseUrl}}"], "path": ["api", "reviews", ":id", "reply"], "variable": [{ "key": "id", "value": "REVIEW_ID" }] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reply\": \"Thank you for your feedback! We are working on improving delivery speed.\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit & Reports",
+      "item": [
+        {
+          "name": "Get Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/audit/logs", "host": ["{{baseUrl}}"], "path": ["api", "audit", "logs"] }
+          }
+        },
+        {
+          "name": "Export Audit Logs CSV",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/audit/logs/export", "host": ["{{baseUrl}}"], "path": ["api", "audit", "logs", "export"] }
+          }
+        },
+        {
+          "name": "Daily Close Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/reports/daily-close", "host": ["{{baseUrl}}"], "path": ["api", "reports", "daily-close"] }
+          }
+        },
+        {
+          "name": "Prescription Turnaround Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/reports/prescription-turnaround", "host": ["{{baseUrl}}"], "path": ["api", "reports", "prescription-turnaround"] }
+          }
+        },
+        {
+          "name": "Inventory Risk Report",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/reports/inventory-risk", "host": ["{{baseUrl}}"], "path": ["api", "reports", "inventory-risk"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Patients",
+      "item": [
+        {
+          "name": "Import Patients from CSV",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/patients/import-csv", "host": ["{{baseUrl}}"], "path": ["api", "patients", "import-csv"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "patientsCsv", "type": "file", "src": "" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

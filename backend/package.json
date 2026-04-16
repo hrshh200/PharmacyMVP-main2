@@ -33,7 +33,9 @@
     "multer": "^2.1.1",
     "nodemailer": "^8.0.4",
     "path": "^0.12.7",
-    "pdfkit": "^0.18.0"
+    "pdfkit": "^0.18.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
