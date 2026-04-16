@@ -21,6 +21,9 @@ import {
   HeartPulse,
   CheckCircle2,
   BadgePercent,
+  AlertCircle,
+  Plus,
+  Minus,
 } from "lucide-react";
 
 const Home = () => {
@@ -29,6 +32,7 @@ const Home = () => {
   const token = localStorage.getItem("medVisionToken");
   const [liveReviews, setLiveReviews] = useState([]);
   const [promotions, setPromotions] = useState([]);
+  const [expandedDiseaseTitle, setExpandedDiseaseTitle] = useState('HIV');
 
   useEffect(() => {
     axios.get(`${baseURL}/reviews?random=true&limit=8`)
@@ -51,6 +55,81 @@ const Home = () => {
       image: `https://ui-avatars.com/api/?name=${encodeURIComponent(r.name)}&background=0ea5e9&color=fff&size=64`,
     }))
     : staticTestimonials;
+
+  const criticalDiseaseGuides = [
+    {
+      title: 'HIV',
+      icon: Shield,
+      accent: 'from-rose-50 via-white to-pink-50',
+      iconClass: 'bg-rose-100 text-rose-700',
+      causes: 'Human immunodeficiency virus spreads through infected blood, unprotected sexual contact, contaminated needles, or from parent to child during pregnancy, birth, or breastfeeding.',
+      symptoms: ['Persistent fever', 'Weight loss', 'Night sweats', 'Swollen lymph nodes'],
+      note: 'Early testing and antiretroviral treatment can significantly improve long-term outcomes.',
+    },
+    {
+      title: 'Post-Transplant Complications',
+      icon: HeartPulse,
+      accent: 'from-violet-50 via-white to-indigo-50',
+      iconClass: 'bg-violet-100 text-violet-700',
+      causes: 'Complications can occur because of organ rejection, infection risk from immunosuppressant therapy, medication non-adherence, or graft dysfunction.',
+      symptoms: ['Fever or chills', 'Reduced urine output', 'Unusual swelling', 'Pain near transplant site'],
+      note: 'Transplant patients need urgent specialist review if new warning signs appear.',
+    },
+    {
+      title: 'Tuberculosis',
+      icon: FileText,
+      accent: 'from-amber-50 via-white to-orange-50',
+      iconClass: 'bg-amber-100 text-amber-700',
+      causes: 'Tuberculosis is caused by Mycobacterium tuberculosis and usually spreads through airborne droplets from a person with active lung infection.',
+      symptoms: ['Cough lasting weeks', 'Blood in sputum', 'Chest pain', 'Fatigue and fever'],
+      note: 'Persistent respiratory symptoms need medical testing rather than self-medication.',
+    },
+    {
+      title: 'Hepatitis B / C',
+      icon: AlertCircle,
+      accent: 'from-cyan-50 via-white to-sky-50',
+      iconClass: 'bg-cyan-100 text-cyan-700',
+      causes: 'These viral liver infections may spread through infected blood, unsafe injections, unsterile instruments, or from mother to child in some cases.',
+      symptoms: ['Jaundice', 'Dark urine', 'Nausea', 'Abdominal pain'],
+      note: 'Untreated viral hepatitis can lead to liver damage, so screening and follow-up matter.',
+    },
+    {
+      title: 'Stroke',
+      icon: Clock,
+      accent: 'from-red-50 via-white to-orange-50',
+      iconClass: 'bg-red-100 text-red-700',
+      causes: 'Stroke usually happens when blood flow to part of the brain is blocked by a clot or when a blood vessel ruptures, often linked to hypertension, diabetes, smoking, or heart rhythm disorders.',
+      symptoms: ['Face drooping', 'Arm weakness', 'Speech difficulty', 'Sudden confusion'],
+      note: 'Stroke symptoms are time-critical and need emergency evaluation immediately.',
+    },
+    {
+      title: 'Sepsis',
+      icon: Shield,
+      accent: 'from-amber-50 via-white to-yellow-50',
+      iconClass: 'bg-amber-100 text-amber-700',
+      causes: 'Sepsis is a life-threatening body response to infection and may follow pneumonia, urinary infections, abdominal infections, wounds, or bloodstream infections.',
+      symptoms: ['Very high or low temperature', 'Rapid breathing', 'Fast heart rate', 'Confusion or drowsiness'],
+      note: 'Sepsis can worsen rapidly, especially in elderly, immunocompromised, or post-surgical patients.',
+    },
+    {
+      title: 'Cancer Warning Signs',
+      icon: Search,
+      accent: 'from-fuchsia-50 via-white to-rose-50',
+      iconClass: 'bg-fuchsia-100 text-fuchsia-700',
+      causes: 'Cancer risk may be influenced by tobacco use, alcohol, chronic infections, inherited mutations, radiation exposure, unhealthy diet, or long-term environmental exposures.',
+      symptoms: ['Unexplained weight loss', 'Persistent lump or swelling', 'Long-lasting fatigue', 'Non-healing sores'],
+      note: 'Not all persistent symptoms mean cancer, but delayed evaluation should be avoided.',
+    },
+    {
+      title: 'Diabetes Complications',
+      icon: HeartPulse,
+      accent: 'from-emerald-50 via-white to-lime-50',
+      iconClass: 'bg-emerald-100 text-emerald-700',
+      causes: 'Complications may develop when blood sugar remains uncontrolled over time, affecting blood vessels, nerves, kidneys, eyes, and heart.',
+      symptoms: ['Slow wound healing', 'Blurred vision', 'Numbness in feet', 'Excessive thirst or urination'],
+      note: 'Regular blood sugar control and follow-up are important to reduce long-term damage.',
+    },
+  ];
 
   const handleOnlinePharmacy = () => navigate("/onlinepharmacy");
   const handleEmergencyPharmacy = () => navigate("/emergencyguidelines");
@@ -405,6 +484,85 @@ const Home = () => {
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="reveal-on-scroll px-4 sm:px-6 lg:px-16 pb-14">
+        <div className="mx-auto max-w-7xl rounded-[2rem] border border-rose-100 bg-gradient-to-br from-rose-50 via-white to-slate-50 p-6 shadow-lg md:p-8">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-700">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Critical Disease Guide
+              </p>
+              <h2 className="mt-4 text-3xl font-black text-slate-900 md:text-4xl">Understanding The Causes Of Critical Diseases</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600 md:text-base">
+                Review common warning signs and basic causes for high-risk conditions such as HIV, transplant complications, tuberculosis, and viral hepatitis. This section is educational and should not replace medical diagnosis.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+              Seek immediate clinical care for persistent fever, breathing difficulty, sudden weakness, or unexplained rapid decline.
+            </div>
+          </div>
+
+          <div className="mt-8 space-y-4">
+            {criticalDiseaseGuides.map((guide) => {
+              const isExpanded = expandedDiseaseTitle === guide.title;
+
+              return (
+                <div key={guide.title} className={`overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br ${guide.accent} shadow-sm`}>
+                  <div className="flex items-center justify-between gap-4 px-5 py-4 md:px-6">
+                    <div className="flex items-center gap-4">
+                      <div className={`inline-flex rounded-2xl p-3 ${guide.iconClass}`}>
+                        <guide.icon className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-black text-slate-900 md:text-2xl">{guide.title}</h3>
+                        <p className="mt-1 text-sm text-slate-600">High-risk condition overview, symptoms, and cause summary.</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setExpandedDiseaseTitle((prev) => (prev === guide.title ? '' : guide.title))}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
+                      aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${guide.title}`}
+                    >
+                      {isExpanded ? <Minus className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+                    </button>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-slate-200/80 bg-white/80 px-5 py-5 md:px-6">
+                      <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Cause Overview</p>
+                          <p className="mt-2 text-sm leading-7 text-slate-700">{guide.causes}</p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Common Symptoms</p>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                            {guide.symptoms.map((symptom) => (
+                              <div key={symptom} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                                {symptom}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+                        <span className="font-bold">Clinical note:</span> {guide.note}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>

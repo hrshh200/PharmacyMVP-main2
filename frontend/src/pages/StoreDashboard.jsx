@@ -64,6 +64,57 @@ const DEFAULT_MANUFACTURER_OPTIONS = [
   'Torrent Pharma',
 ];
 
+const PAGINATION_PAGE_SIZE_OPTIONS = [10, 20];
+
+const renderPaginationControls = ({ meta, onPageChange, onPageSizeChange, className = '' }) => {
+  if (!meta || meta.totalItems === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 ${className}`.trim()}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs font-medium text-slate-600">
+          Showing {meta.startItem}-{meta.endItem} of {meta.totalItems}
+        </p>
+        <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+          <span>Items per page</span>
+          <select
+            value={meta.pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-blue-500 focus:outline-none"
+          >
+            {PAGINATION_PAGE_SIZE_OPTIONS.map((sizeOption) => (
+              <option key={`page-size-${sizeOption}`} value={sizeOption}>{sizeOption}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
+        <button
+          type="button"
+          onClick={() => onPageChange(meta.currentPage - 1)}
+          disabled={meta.currentPage <= 1}
+          className="min-w-[88px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Previous
+        </button>
+        <span className="flex-1 text-center text-xs font-semibold text-slate-700 sm:flex-none">
+          Page {meta.currentPage} of {meta.totalPages}
+        </span>
+          <button
+            type="button"
+            onClick={() => onPageChange(meta.currentPage + 1)}
+            disabled={meta.currentPage >= meta.totalPages}
+            className="min-w-[88px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next
+          </button>
+      </div>
+      </div>
+  );
+};
+
 const StoreDashboard = () => {
   const [selectedSection, setSelectedSection] = useState('home');
   const [dashboardAccessRole, setDashboardAccessRole] = useState('Store Admin');
@@ -921,6 +972,56 @@ const StoreDashboard = () => {
     bulkBuyQuantity: '',
     bulkGetQuantity: '',
   });
+  const [paginationState, setPaginationState] = useState({
+    staff: { page: 1, pageSize: 10 },
+    performance: { page: 1, pageSize: 10 },
+    attendance: { page: 1, pageSize: 10 },
+    training: { page: 1, pageSize: 10 },
+    compliance: { page: 1, pageSize: 10 },
+    invoices: { page: 1, pageSize: 10 },
+    suppliers: { page: 1, pageSize: 10 },
+    campaigns: { page: 1, pageSize: 10 },
+    inventory: { page: 1, pageSize: 10 },
+    orders: { page: 1, pageSize: 10 },
+    prescriptions: { page: 1, pageSize: 10 },
+    queries: { page: 1, pageSize: 10 },
+    reviews: { page: 1, pageSize: 10 },
+    audit: { page: 1, pageSize: 10 },
+    profitCategory: { page: 1, pageSize: 10 },
+    taxBreakdown: { page: 1, pageSize: 10 },
+  });
+
+  const updatePagination = (key, updates) => {
+    setPaginationState((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || { page: 1, pageSize: 10 }),
+        ...updates,
+      },
+    }));
+  };
+
+  const getPaginationMeta = (key, items) => {
+    const safeItems = Array.isArray(items) ? items : [];
+    const state = paginationState[key] || { page: 1, pageSize: 10 };
+    const pageSize = PAGINATION_PAGE_SIZE_OPTIONS.includes(Number(state.pageSize)) ? Number(state.pageSize) : 10;
+    const totalItems = safeItems.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const currentPage = Math.min(Math.max(Number(state.page) || 1, 1), totalPages);
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedItems = safeItems.slice(startIndex, endIndex);
+
+    return {
+      items: paginatedItems,
+      currentPage,
+      pageSize,
+      totalItems,
+      totalPages,
+      startItem: totalItems === 0 ? 0 : startIndex + 1,
+      endItem: totalItems === 0 ? 0 : Math.min(endIndex, totalItems),
+    };
+  };
 
   const formatShortDate = (value) => {
     if (!value) return 'N/A';
@@ -2063,6 +2164,7 @@ const StoreDashboard = () => {
 
   const sectionConfig = [
     { key: 'home', label: 'Dashboard Overview', icon: Home },
+    { key: 'auditTrail', label: 'Audit Trail', icon: Clock },
     { key: 'staff', label: 'Staff Members', icon: Users },
     { key: 'promotions', label: 'Promotions', icon: BadgePercent },
     { key: 'importPatients', label: 'Import Patients', icon: FileUp },
@@ -2077,7 +2179,7 @@ const StoreDashboard = () => {
   ];
 
   const roleSectionAccess = {
-    'Store Admin': ['home', 'staff', 'promotions', 'importPatients', 'inventory', 'orders', 'financialManagement', 'prescription', 'queries', 'reviews', 'myProfile', 'reports'],
+    'Store Admin': ['home', 'auditTrail', 'staff', 'promotions', 'importPatients', 'inventory', 'orders', 'financialManagement', 'prescription', 'queries', 'reviews', 'myProfile', 'reports'],
     Pharmacist: ['home', 'prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
     Operator: ['home', 'prescription', 'inventory', 'orders', 'queries', 'reviews', 'myProfile'],
   };
@@ -2085,7 +2187,7 @@ const StoreDashboard = () => {
   const allowedSectionKeys = roleSectionAccess[dashboardAccessRole] || roleSectionAccess['Store Admin'];
   const visibleSectionConfig = sectionConfig.filter((section) => allowedSectionKeys.includes(section.key));
   const sectionGroupConfig = useMemo(() => ([
-    { title: 'Overview', keys: ['home', 'reports'] },
+    { title: 'Overview', keys: ['home', 'reports', 'auditTrail'] },
     { title: 'Operations', keys: ['inventory', 'orders', 'prescription', 'financialManagement'] },
     { title: 'People & Communication', keys: ['staff', 'queries', 'reviews'] },
     { title: 'Growth & Setup', keys: ['promotions', 'importPatients', 'myProfile'] },
@@ -2686,8 +2788,10 @@ const StoreDashboard = () => {
     if ((selectedSection === 'orders' || selectedSection === 'reports') && allowedSectionKeys.includes(selectedSection)) {
       loadStoreOrders();
     }
-    if (selectedSection === 'reports' && allowedSectionKeys.includes('reports')) {
+    if (selectedSection === 'auditTrail' && allowedSectionKeys.includes('auditTrail')) {
       loadAuditLogs();
+    }
+    if (selectedSection === 'reports' && allowedSectionKeys.includes('reports')) {
       loadReportSnapshots();
     }
     if (selectedSection === 'prescription' && allowedSectionKeys.includes('prescription')) {
@@ -2981,6 +3085,35 @@ const StoreDashboard = () => {
 
     return firstNameMatch && lastNameMatch && contactMatch && emailMatch;
   });
+
+  const staffPagination = getPaginationMeta('staff', filteredStaffMembers);
+  const performancePagination = getPaginationMeta('performance', performanceRecords);
+  const attendancePagination = getPaginationMeta('attendance', attendanceRecords);
+  const trainingPagination = getPaginationMeta('training', trainingRecords);
+  const compliancePagination = getPaginationMeta('compliance', complianceItems);
+  const invoicePagination = getPaginationMeta('invoices', invoices);
+  const supplierPagination = getPaginationMeta('suppliers', suppliers);
+  const campaignPagination = getPaginationMeta('campaigns', campaigns);
+  const inventoryPagination = getPaginationMeta('inventory', inventoryItems);
+  const ordersPagination = getPaginationMeta('orders', filteredOrders);
+  const prescriptionsPagination = getPaginationMeta('prescriptions', filteredPrescriptions);
+  const queriesPagination = getPaginationMeta('queries', queries);
+  const reviewsPagination = getPaginationMeta('reviews', storeReviews);
+  const auditPagination = getPaginationMeta('audit', auditLogs);
+  const profitCategoryPagination = getPaginationMeta('profitCategory', profitByCategory);
+  const taxBreakdownPagination = getPaginationMeta('taxBreakdown', taxBreakdown);
+
+  useEffect(() => {
+    updatePagination('staff', { page: 1 });
+  }, [staffSearchFirstName, staffSearchLastName, staffSearchContact, staffSearchEmail]);
+
+  useEffect(() => {
+    updatePagination('orders', { page: 1 });
+  }, [selectedOrderFilter]);
+
+  useEffect(() => {
+    updatePagination('prescriptions', { page: 1 });
+  }, [prescriptionStatusFilter, prescriptionReviewerFilter, reviewerSearchQuery]);
 
   const staffCompliancePermissionPrefixes = ['staff.', 'attendance.', 'performance.', 'training.', 'compliance.'];
   const staffCompliancePermissions = staffPermissions.filter((permission) =>
@@ -3874,7 +4007,7 @@ const StoreDashboard = () => {
                           Loading staff members...
                         </div>
                       ) : filteredStaffMembers.length ? (
-                        filteredStaffMembers.map((member) => (
+                        staffPagination.items.map((member) => (
                           <div key={member._id} className="flex flex-col gap-3 rounded-3xl border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <p className="text-sm text-slate-700">
@@ -3918,6 +4051,11 @@ const StoreDashboard = () => {
                           No staff members match your search.
                         </div>
                       )}
+                      {!staffLoading && filteredStaffMembers.length > 0 && renderPaginationControls({
+                        meta: staffPagination,
+                        onPageChange: (page) => updatePagination('staff', { page }),
+                        onPageSizeChange: (pageSize) => updatePagination('staff', { page: 1, pageSize }),
+                      })}
                     </div>
                   </div>
                 ) : (
@@ -4108,13 +4246,18 @@ const StoreDashboard = () => {
                       <button type="submit" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Save Performance</button>
                     </form>
                     <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
-                      {staffOpsLoading ? <p className="text-sm text-slate-500">Loading performance...</p> : performanceRecords.slice(0, 10).map((record) => (
+                      {staffOpsLoading ? <p className="text-sm text-slate-500">Loading performance...</p> : performancePagination.items.map((record) => (
                         <div key={record._id} className="rounded-xl border border-slate-200 p-3 text-sm">
                           <p className="font-semibold text-slate-900">{record.staffId?.firstName} {record.staffId?.lastName} • Score {record.efficiencyScore}</p>
                           <p className="text-slate-600">Orders {record.ordersProcessed} • Rating {record.customerRating}</p>
                         </div>
                       ))}
                     </div>
+                    {!staffOpsLoading && performanceRecords.length > 0 && renderPaginationControls({
+                      meta: performancePagination,
+                      onPageChange: (page) => updatePagination('performance', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('performance', { page: 1, pageSize }),
+                    })}
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -4151,7 +4294,7 @@ const StoreDashboard = () => {
                       <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Save Attendance</button>
                     </form>
                     <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
-                      {staffOpsLoading ? <p className="text-sm text-slate-500">Loading attendance...</p> : attendanceRecords.slice(0, 10).map((record) => (
+                      {staffOpsLoading ? <p className="text-sm text-slate-500">Loading attendance...</p> : attendancePagination.items.map((record) => (
                         <div key={record._id} className="rounded-xl border border-slate-200 p-3 text-sm">
                           <p className="font-semibold text-slate-900">{record.staffId?.firstName} {record.staffId?.lastName} • {record.status}</p>
                           <p className="text-slate-600">Shift {record.shiftType} • {new Date(record.date).toLocaleDateString()}</p>
@@ -4162,6 +4305,11 @@ const StoreDashboard = () => {
                         </div>
                       ))}
                     </div>
+                    {!staffOpsLoading && attendanceRecords.length > 0 && renderPaginationControls({
+                      meta: attendancePagination,
+                      onPageChange: (page) => updatePagination('attendance', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('attendance', { page: 1, pageSize }),
+                    })}
                   </div>
                 </div>
 
@@ -4194,13 +4342,18 @@ const StoreDashboard = () => {
                       <button type="submit" className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">Save Training</button>
                     </form>
                     <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
-                      {staffOpsLoading ? <p className="text-sm text-slate-500">Loading training...</p> : trainingRecords.slice(0, 10).map((record) => (
+                      {staffOpsLoading ? <p className="text-sm text-slate-500">Loading training...</p> : trainingPagination.items.map((record) => (
                         <div key={record._id} className="rounded-xl border border-slate-200 p-3 text-sm">
                           <p className="font-semibold text-slate-900">{record.title} • {record.moduleType}</p>
                           <p className="text-slate-600">{record.staffId?.firstName} {record.staffId?.lastName} • {record.score}/{record.maxScore}</p>
                         </div>
                       ))}
                     </div>
+                    {!staffOpsLoading && trainingRecords.length > 0 && renderPaginationControls({
+                      meta: trainingPagination,
+                      onPageChange: (page) => updatePagination('training', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('training', { page: 1, pageSize }),
+                    })}
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -4238,7 +4391,7 @@ const StoreDashboard = () => {
                     </div>
 
                     <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
-                      {complianceLoading ? <p className="text-sm text-slate-500">Loading checklist...</p> : complianceItems.slice(0, 12).map((item) => (
+                      {complianceLoading ? <p className="text-sm text-slate-500">Loading checklist...</p> : compliancePagination.items.map((item) => (
                         <div key={item._id} className="rounded-xl border border-slate-200 p-3 text-sm">
                           <p className="font-semibold text-slate-900">{item.title}</p>
                           <p className="text-slate-600">{item.itemType} • Due {new Date(item.dueDate).toLocaleDateString()} • {item.status}</p>
@@ -4250,6 +4403,11 @@ const StoreDashboard = () => {
                         </div>
                       ))}
                     </div>
+                    {!complianceLoading && complianceItems.length > 0 && renderPaginationControls({
+                      meta: compliancePagination,
+                      onPageChange: (page) => updatePagination('compliance', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('compliance', { page: 1, pageSize }),
+                    })}
                   </div>
                 </div>
               </div>
@@ -4319,13 +4477,18 @@ const StoreDashboard = () => {
                       <button type="submit" className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700">Generate Invoice</button>
                     </form>
                     <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
-                      {financeLoading ? <p className="text-sm text-slate-500">Loading invoices...</p> : invoices.slice(0, 8).map((invoice) => (
+                      {financeLoading ? <p className="text-sm text-slate-500">Loading invoices...</p> : invoicePagination.items.map((invoice) => (
                         <div key={invoice._id} className="rounded-xl border border-slate-200 p-3 text-sm">
                           <p className="font-semibold text-slate-900">{invoice.invoiceNumber} • {invoice.customerName || 'Walk-in Customer'}</p>
                           <p className="text-slate-600">Total ${Number(invoice.grandTotal || 0).toFixed(2)} • Paid ${Number(invoice.paidAmount || 0).toFixed(2)} • {invoice.paymentStatus}</p>
                         </div>
                       ))}
                     </div>
+                    {!financeLoading && invoices.length > 0 && renderPaginationControls({
+                      meta: invoicePagination,
+                      onPageChange: (page) => updatePagination('invoices', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('invoices', { page: 1, pageSize }),
+                    })}
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -4392,7 +4555,7 @@ const StoreDashboard = () => {
                       <button type="submit" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Add Supplier</button>
                     </form>
                     <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
-                      {supplierLoading ? <p className="text-sm text-slate-500">Loading suppliers...</p> : suppliers.map((supplier) => (
+                      {supplierLoading ? <p className="text-sm text-slate-500">Loading suppliers...</p> : supplierPagination.items.map((supplier) => (
                         <div key={supplier._id} className="rounded-xl border border-slate-200 p-3 text-sm">
                           <p className="font-semibold text-slate-900">{supplier.name}</p>
                           <p className="text-slate-600">Outstanding ${Number(supplier.outstandingAmount || 0).toFixed(2)} • Terms {supplier.paymentTermsDays} days</p>
@@ -4414,6 +4577,11 @@ const StoreDashboard = () => {
                         </div>
                       ))}
                     </div>
+                    {!supplierLoading && suppliers.length > 0 && renderPaginationControls({
+                      meta: supplierPagination,
+                      onPageChange: (page) => updatePagination('suppliers', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('suppliers', { page: 1, pageSize }),
+                    })}
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -4432,23 +4600,33 @@ const StoreDashboard = () => {
                     <div className="mt-4">
                       <p className="text-sm font-semibold text-slate-900">Profit by category</p>
                       <div className="mt-2 max-h-36 space-y-2 overflow-y-auto">
-                        {profitByCategory.slice(0, 10).map((row) => (
+                        {profitCategoryPagination.items.map((row) => (
                           <div key={row.category} className="rounded-lg border border-slate-200 p-2 text-xs text-slate-700">
                             {row.category}: Profit ${Number(row.profit || 0).toFixed(2)} ({Number(row.marginPercent || 0).toFixed(2)}%)
                           </div>
                         ))}
                       </div>
+                      {profitByCategory.length > 0 && renderPaginationControls({
+                        meta: profitCategoryPagination,
+                        onPageChange: (page) => updatePagination('profitCategory', { page }),
+                        onPageSizeChange: (pageSize) => updatePagination('profitCategory', { page: 1, pageSize }),
+                      })}
                     </div>
 
                     <div className="mt-4">
                       <p className="text-sm font-semibold text-slate-900">GST breakdown</p>
                       <div className="mt-2 max-h-36 space-y-2 overflow-y-auto">
-                        {taxBreakdown.map((row) => (
+                        {taxBreakdownPagination.items.map((row) => (
                           <div key={String(row.gstRate)} className="rounded-lg border border-slate-200 p-2 text-xs text-slate-700">
                             GST {row.gstRate}%: Taxable ${Number(row.taxableSales || 0).toFixed(2)} • Collected ${Number(row.gstCollected || 0).toFixed(2)}
                           </div>
                         ))}
                       </div>
+                      {taxBreakdown.length > 0 && renderPaginationControls({
+                        meta: taxBreakdownPagination,
+                        onPageChange: (page) => updatePagination('taxBreakdown', { page }),
+                        onPageSizeChange: (pageSize) => updatePagination('taxBreakdown', { page: 1, pageSize }),
+                      })}
                     </div>
                   </div>
                 </div>
@@ -4810,12 +4988,13 @@ const StoreDashboard = () => {
                       <p className="text-sm text-slate-500 mt-1">Create your first promotional campaign to get started</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                      {campaigns.map((campaign) => (
-                        <div
-                          key={campaign._id}
-                          className="rounded-2xl border border-slate-200 bg-white p-5 hover:shadow-md transition-shadow"
-                        >
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {campaignPagination.items.map((campaign) => (
+                          <div
+                            key={campaign._id}
+                            className="rounded-2xl border border-slate-200 bg-white p-5 hover:shadow-md transition-shadow"
+                          >
                           {/* Header Badge */}
                           <div className="flex items-start justify-between gap-2 mb-3">
                             <div className="flex-1">
@@ -4909,8 +5088,14 @@ const StoreDashboard = () => {
                               Delete
                             </button>
                           </div>
-                        </div>
-                      ))}
+                          </div>
+                        ))}
+                      </div>
+                      {renderPaginationControls({
+                        meta: campaignPagination,
+                        onPageChange: (page) => updatePagination('campaigns', { page }),
+                        onPageSizeChange: (pageSize) => updatePagination('campaigns', { page: 1, pageSize }),
+                      })}
                     </div>
                   )}
                 </div>
@@ -5017,7 +5202,7 @@ const StoreDashboard = () => {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {inventoryItems.map((item) => (
+                      {inventoryPagination.items.map((item) => (
                       <div key={item._id} className="rounded-3xl border border-slate-200 p-4">
                         {editingMedicineId === item._id ? (
                           <div className="space-y-3">
@@ -5168,6 +5353,11 @@ const StoreDashboard = () => {
                         )}
                       </div>
                     ))}
+                      {renderPaginationControls({
+                        meta: inventoryPagination,
+                        onPageChange: (page) => updatePagination('inventory', { page }),
+                        onPageSizeChange: (pageSize) => updatePagination('inventory', { page: 1, pageSize }),
+                      })}
                     </div>
                   )}
                 </div>
@@ -5367,7 +5557,7 @@ const StoreDashboard = () => {
                       <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
                         {orders.length === 0 ? 'No orders available yet.' : 'No orders match this filter.'}
                       </div>
-                    ) : filteredOrders.map((order, index) => {
+                    ) : ordersPagination.items.map((order, index) => {
                       const active = order.id === selectedOrderId;
                       return (
                         <button
@@ -5379,7 +5569,7 @@ const StoreDashboard = () => {
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-3">
                               <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${active ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                {index + 1}
+                                {((ordersPagination.currentPage - 1) * ordersPagination.pageSize) + index + 1}
                               </span>
                               <div>
                                 <p className="font-semibold text-slate-900">Order #{order.id}</p>
@@ -5397,6 +5587,11 @@ const StoreDashboard = () => {
                           </div>
                         </button>
                       );
+                    })}
+                    {!ordersLoading && filteredOrders.length > 0 && renderPaginationControls({
+                      meta: ordersPagination,
+                      onPageChange: (page) => updatePagination('orders', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('orders', { page: 1, pageSize }),
                     })}
                   </div>
                   <div ref={orderDetailsRef} className="rounded-3xl border border-slate-200 bg-slate-50 p-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
@@ -5610,7 +5805,7 @@ const StoreDashboard = () => {
                       <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
                         {prescriptions.length === 0 ? 'No prescription requests yet.' : 'No prescriptions in this status.'}
                       </div>
-                    ) : filteredPrescriptions.map((prescription, index) => {
+                    ) : prescriptionsPagination.items.map((prescription, index) => {
                       const active = prescription._id === selectedPrescriptionId;
                       const normalizedStatus = String(prescription.status || 'pending').toLowerCase();
                       return (
@@ -5626,7 +5821,7 @@ const StoreDashboard = () => {
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-3">
                               <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${active ? 'bg-yellow-500 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                                {index + 1}
+                                {((prescriptionsPagination.currentPage - 1) * prescriptionsPagination.pageSize) + index + 1}
                               </span>
                               <div>
                                 <p className="font-semibold text-slate-900">{prescription.userId?.name || 'Unknown User'}</p>
@@ -5652,6 +5847,11 @@ const StoreDashboard = () => {
                           )}
                         </button>
                       );
+                    })}
+                    {!prescriptionsLoading && filteredPrescriptions.length > 0 && renderPaginationControls({
+                      meta: prescriptionsPagination,
+                      onPageChange: (page) => updatePagination('prescriptions', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('prescriptions', { page: 1, pageSize }),
                     })}
                   </div>
                   {selectedPendingPrescription && showPendingReviewWorkspace && (
@@ -5971,7 +6171,7 @@ const StoreDashboard = () => {
                       </div>
                     ) : (
                     <div className="space-y-2">
-                      {queries.map((q) => {
+                      {queriesPagination.items.map((q) => {
                         const active = selectedQueryId === q._id;
                         const patientName = q.userId?.name || 'Unknown Patient';
                         const normalizedStatus = String(q.status || 'open').toLowerCase();
@@ -6001,6 +6201,11 @@ const StoreDashboard = () => {
                       })}
                     </div>
                     )}
+                    {!queriesLoading && queries.length > 0 && renderPaginationControls({
+                      meta: queriesPagination,
+                      onPageChange: (page) => updatePagination('queries', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('queries', { page: 1, pageSize }),
+                    })}
                   </div>
 
                   {/* Query Detail & Answer */}
@@ -6077,7 +6282,7 @@ const StoreDashboard = () => {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {storeReviews.map((review) => {
+                        {reviewsPagination.items.map((review) => {
                           const active = selectedReviewId === review._id;
                           const hasReply = Boolean(String(review?.storeResponse?.message || '').trim());
                           return (
@@ -6106,6 +6311,11 @@ const StoreDashboard = () => {
                         })}
                       </div>
                     )}
+                    {!storeReviewsLoading && storeReviews.length > 0 && renderPaginationControls({
+                      meta: reviewsPagination,
+                      onPageChange: (page) => updatePagination('reviews', { page }),
+                      onPageSizeChange: (pageSize) => updatePagination('reviews', { page: 1, pageSize }),
+                    })}
                   </div>
 
                   <div className="p-6">
@@ -6252,101 +6462,6 @@ const StoreDashboard = () => {
                 </div>
 
                 <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">Audit Trail Panel</h3>
-                      <p className="text-sm text-slate-500">Track who changed what and when across status, stock, and price updates.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={exportAuditLogsCsv}
-                      disabled={auditExporting}
-                      className="inline-flex items-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {auditExporting ? 'Exporting...' : 'Export Audit Logs (CSV)'}
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                    <input
-                      type="text"
-                      value={auditFilters.user}
-                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, user: event.target.value }))}
-                      placeholder="Filter by user"
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                    <select
-                      value={auditFilters.action}
-                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, action: event.target.value }))}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                    >
-                      {auditActionOptions.map((option) => (
-                        <option key={`audit-action-${option.value || 'all'}`} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="date"
-                      value={auditFilters.from}
-                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, from: event.target.value }))}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                    <input
-                      type="date"
-                      value={auditFilters.to}
-                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, to: event.target.value }))}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => loadAuditLogs()}
-                      disabled={auditLoading}
-                      className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {auditLoading ? 'Loading...' : 'Apply Filters'}
-                    </button>
-                  </div>
-
-                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">When</th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">User</th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">Action</th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">What Changed</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white">
-                        {auditLoading ? (
-                          <tr>
-                            <td colSpan={4} className="px-4 py-6 text-center text-slate-500">Loading audit logs...</td>
-                          </tr>
-                        ) : auditLogs.length ? auditLogs.map((log) => (
-                          <tr key={log._id}>
-                            <td className="px-4 py-3 text-slate-700">{formatDateTime(log.occurredAt)}</td>
-                            <td className="px-4 py-3 text-slate-700">
-                              <p className="font-semibold text-slate-900">{log?.actor?.name || 'Store Admin'}</p>
-                              <p className="text-xs text-slate-500">{log?.actor?.role || 'Store Admin'}</p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{log.action}</span>
-                            </td>
-                            <td className="px-4 py-3 text-slate-700">
-                              <p className="font-medium text-slate-900">{log.description || `${log.entityType} updated`}</p>
-                              <p className="mt-1 text-xs text-slate-500">{log.entityType} #{log.entityId}</p>
-                            </td>
-                          </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={4} className="px-4 py-6 text-center text-slate-500">No audit records found for selected filters.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Downloadable Operational Reports</h3>
@@ -6409,6 +6524,121 @@ const StoreDashboard = () => {
                       </button>
                     </div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {selectedSection === 'auditTrail' && (
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 p-6 text-white shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold">Audit Trail</h2>
+                      <p className="text-sm text-slate-200">Full audit history for status changes, stock updates, price edits, and operational actions.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSection('reports')}
+                        className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+                      >
+                        Back to Reports
+                      </button>
+                      <button
+                        type="button"
+                        onClick={exportAuditLogsCsv}
+                        disabled={auditExporting}
+                        className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {auditExporting ? 'Exporting...' : 'Export Audit Logs (CSV)'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="mt-1 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    <input
+                      type="text"
+                      value={auditFilters.user}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, user: event.target.value }))}
+                      placeholder="Filter by user"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <select
+                      value={auditFilters.action}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, action: event.target.value }))}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    >
+                      {auditActionOptions.map((option) => (
+                        <option key={`audit-trail-action-${option.value || 'all'}`} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="date"
+                      value={auditFilters.from}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, from: event.target.value }))}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <input
+                      type="date"
+                      value={auditFilters.to}
+                      onChange={(event) => setAuditFilters((prev) => ({ ...prev, to: event.target.value }))}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => loadAuditLogs()}
+                      disabled={auditLoading}
+                      className="rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {auditLoading ? 'Loading...' : 'Apply Filters'}
+                    </button>
+                  </div>
+
+                  <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">When</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">User</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">Action</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">What Changed</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {auditLoading ? (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-6 text-center text-slate-500">Loading audit logs...</td>
+                          </tr>
+                        ) : auditLogs.length ? auditPagination.items.map((log) => (
+                          <tr key={`full-audit-${log._id}`}>
+                            <td className="px-4 py-3 text-slate-700">{formatDateTime(log.occurredAt)}</td>
+                            <td className="px-4 py-3 text-slate-700">
+                              <p className="font-semibold text-slate-900">{log?.actor?.name || 'Store Admin'}</p>
+                              <p className="text-xs text-slate-500">{log?.actor?.role || 'Store Admin'}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{log.action}</span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              <p className="font-medium text-slate-900">{log.description || `${log.entityType} updated`}</p>
+                              <p className="mt-1 text-xs text-slate-500">{log.entityType} #{log.entityId}</p>
+                            </td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-6 text-center text-slate-500">No audit records found for selected filters.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  {!auditLoading && auditLogs.length > 0 && renderPaginationControls({
+                    meta: auditPagination,
+                    onPageChange: (page) => updatePagination('audit', { page }),
+                    onPageSizeChange: (pageSize) => updatePagination('audit', { page: 1, pageSize }),
+                  })}
                 </div>
               </div>
             )}
